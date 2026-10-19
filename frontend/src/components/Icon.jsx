@@ -2,6 +2,7 @@ const paths = {
   menu: <><path d="M4 6h16M4 12h16M4 18h16" /></>,
   search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></>,
   mic: <><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3m-4 0h8" /></>,
+  userPlus: <><circle cx="9" cy="8" r="4" /><path d="M2 21v-1a7 7 0 0 1 14 0v1m5-12v6m-3-3h6" /></>,
   home: <><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-6v-7h-4v7H4a1 1 0 0 1-1-1z" /></>,
   shorts: <><path d="M14.5 3.5 6 8.4a4 4 0 0 0 0 7.2l8.5 4.9a4 4 0 0 0 4-6.9L16 12l2.5-1.6a4 4 0 0 0-4-6.9Z" /><path d="m10 9 5 3-5 3z" /></>,
   subscriptions: <><rect x="3" y="5" width="18" height="14" rx="3" /><path d="m10 9 5 3-5 3z" /></>,
