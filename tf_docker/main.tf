@@ -19,9 +19,10 @@ resource "docker_image" "postgres" {
   keep_locally = true
 }
 
-resource "docker_volume" "postgres_data" {
-  name = "itube-postgres-data"
-}
+# IN MAKEFILE I'M CREATING A VOLUME ---- TO INSTALL MAKE FILE USE THE CMD IN ADMIN MODE 'choco install makefile'
+# resource "docker_volume" "postgres_data" {
+#   name = "itube-postgres-data"
+# }
 
 resource "docker_network" "database" {
   name = "itube-database"
@@ -43,7 +44,7 @@ resource "docker_container" "postgres" {
   }
 
   volumes {
-    volume_name    = docker_volume.postgres_data.name
+    volume_name    = "postgres_data"
     container_path = "/var/lib/postgresql/data"
   }
 
@@ -63,7 +64,7 @@ resource "docker_container" "pgadmin" {
 
   env = [
     "PGADMIN_DEFAULT_EMAIL=admin@example.com",
-    "PGADMIN_DEFAULT_PASSWORD=itube-admin-password",
+    "PGADMIN_DEFAULT_PASSWORD=password",
   ]
 
   ports {
@@ -79,4 +80,44 @@ resource "docker_container" "pgadmin" {
 output "postgres_connection" {
   value     = "postgresql://itube:itube-dev-password@localhost:5432/itube"
   sensitive = true
+}
+
+resource "docker_image" "grafana_lgtm" {
+  name         = "grafana/otel-lgtm:latest"
+  keep_locally = true
+}
+
+resource "docker_container" "grafana_lgtm" {
+  name  = "grafana-lgtm"
+  image = docker_image.grafana_lgtm.image_id
+
+  ports {
+    internal = 3000
+    external = 3080
+  }
+
+  ports {
+    internal = 4317
+    external = 4317
+  }
+
+  ports {
+    internal = 4318
+    external = 4318
+  }
+}
+
+resource "docker_image" "redis" {
+  name         = "redis:7-alpine"
+  keep_locally = true
+}
+
+resource "docker_container" "redis" {
+  name  = "itube-redis"
+  image = docker_image.redis.image_id
+
+  ports {
+    internal = 6379
+    external = 6379
+  }
 }

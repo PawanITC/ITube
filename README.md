@@ -102,6 +102,22 @@ Example:
           description: Video not found
 ```
 
+
+Terraform:
+
+Install Terraform --- Follow this video `https://www.youtube.com/watch?v=ntf5mvIvE2k`
+Install Make --- `choco install make`
+Direct into terraform and initialise it --- 
+
+```bash
+cd tf_docker
+terraform init
+```
+
+Then run the cmd `make up` to start the servers and database
+Use `make down` to take down servers
+Use `make down` to delete the database
+
 *Planned:* once the backend has real endpoints, we can add [springdoc-openapi](https://springdoc.org/) so Spring generates the spec from the Java code. To point Swagger at it, create `frontend/.env.local` containing `VITE_OPENAPI_URL=/v3/api-docs` and add `/v3` to the proxy in `vite.config.js`.
 
 ## Things to know
