@@ -17,14 +17,7 @@ paths:
     get:
       tags: [Videos]
       summary: List videos
-      description: PLACEHOLDER - not implemented in the backend yet. Example of how to document an endpoint.
-      parameters:
-        - name: search
-          in: query
-          required: false
-          description: Filters by title or channel name (case-insensitive).
-          schema:
-            type: string
+      description: Returns video metadata, including transcoding status.
       responses:
         '200':
           description: A list of videos
@@ -34,37 +27,62 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Video'
+  /videos/{videoId}/qualities:
+    get:
+      tags: [Videos]
+      summary: List available video qualities
+      parameters:
+        - $ref: '#/components/parameters/VideoId'
+      responses:
+        '200':
+          description: Available rendition names; empty while processing.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: string, enum: [360p, 720p] }
+  /videos/{videoId}/renditions/{quality}:
+    get:
+      tags: [Videos]
+      summary: Get a transcoded MP4 rendition
+      parameters:
+        - $ref: '#/components/parameters/VideoId'
+        - name: quality
+          in: path
+          required: true
+          schema: { type: string, enum: [360p, 720p] }
+      responses:
+        '200':
+          description: MP4 video data
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+        '404': { description: Video or rendition not found }
 components:
+  parameters:
+    VideoId:
+      name: videoId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
   schemas:
     Video:
       type: object
-      required: [title, channel]
+      required: [videoId, title, channelName, processingStatus]
       properties:
+        videoId: { type: integer, format: int64 }
+        channelId: { type: integer, format: int64 }
         title:
           type: string
-          example: How I would learn to code (if I could start over)
-        channel:
+        channelName:
           type: string
-          example: Maya Makes
-        views:
-          type: string
-          example: 842K views
-        age:
-          type: string
-          description: Human-readable time since upload.
-          example: 1 week ago
         duration:
           type: string
-          example: "24:16"
-        image:
+          example: "00:24:16"
+        processingStatus:
           type: string
-          description: Unsplash photo id used for the thumbnail.
-          example: photo-1516321318423-f06f85e504b3
-        avatar:
+          enum: [PROCESSING, READY, FAILED]
+        videoUrl:
           type: string
-          description: Letter shown in the channel avatar.
-          example: M
-        color:
+        thumbnailUrl:
           type: string
-          description: Channel avatar background colour.
-          example: "#d66b58"

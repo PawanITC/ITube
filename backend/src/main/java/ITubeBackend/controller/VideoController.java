@@ -12,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
@@ -54,6 +55,19 @@ public class VideoController {
     public List<VideoSummaryDto> listVideos() {
         return videoService.getVideos();
     }
+
+    /// REVIEW
+
+    @GetMapping("/api/videos/{videoId}/qualities")
+    public List<String> getQualities(@PathVariable Long videoId) { return videoService.getQualities(videoId); }
+
+    @GetMapping("/api/videos/{videoId}/renditions/{quality}")
+    public ResponseEntity<byte[]> getRendition(@PathVariable Long videoId, @PathVariable String quality) {
+        VideoAssetDto asset = videoService.getRendition(videoId, quality);
+        return ResponseEntity.ok().contentType(MediaType.parseMediaType(asset.contentType())).body(asset.content());
+    }
+
+    // REVIEW
 
     @GetMapping("/api/videos/{videoId}/file")
     public ResponseEntity<byte[]> getVideoFile(@org.springframework.web.bind.annotation.PathVariable Long videoId) {

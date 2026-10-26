@@ -152,7 +152,7 @@ export default function UploadVideoPage({ session, onCancel }) {
         const problem = await response.json().catch(() => null);
         throw new Error(problem?.detail || 'Upload failed. Please try again.');
       }
-      setSuccess('Your video was posted.');
+      setSuccess('Your video was posted. Quality options are processing in the background.');
       setFile(null);
       setTitle('');
       setDuration('');

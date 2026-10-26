@@ -15,8 +15,34 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
   const [hasSession, setHasSession] = useState(Boolean(session));
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [qualities, setQualities] = useState([]);
+  const [selectedQuality, setSelectedQuality] = useState('source');
+  const [processingStatus, setProcessingStatus] = useState('PROCESSING');
   const video = useMemo(() => videos.find(item => item.videoId === videoId), [videos, videoId]);
   const recommendations = useMemo(() => videos.filter(item => item.videoId !== videoId), [videos, videoId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer;
+    setSelectedQuality('source');
+    async function refreshProcessing() {
+      try {
+        const [videoResponse, qualityResponse] = await Promise.all([
+          fetch('/api/videos'),
+          fetch(`/api/videos/${videoId}/qualities`),
+        ]);
+        if (!videoResponse.ok || !qualityResponse.ok) return;
+        const currentVideo = (await videoResponse.json()).find(item => item.videoId === videoId);
+        const availableQualities = await qualityResponse.json();
+        if (cancelled) return;
+        if (currentVideo) setProcessingStatus(currentVideo.processingStatus);
+        setQualities(availableQualities);
+        if (currentVideo?.processingStatus === 'PROCESSING') timer = setTimeout(refreshProcessing, 3000);
+      } catch { if (!cancelled) timer = setTimeout(refreshProcessing, 5000); }
+    }
+    refreshProcessing();
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [videoId]);
 
   useEffect(() => {
     if (session) setHasSession(true);
@@ -83,7 +109,15 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
       {videosLoading ? <p className="watch-message">Loading video…</p> : videosError ? <p className="watch-message" role="alert">{videosError}</p> : !video ? <p className="watch-message">Video not found.</p> : (
         <div className="watch-layout">
           <section className="watch-primary">
-            <video className="watch-player" src={video.videoUrl} poster={video.thumbnailUrl || undefined} controls autoPlay playsInline />
+            {processingStatus === 'PROCESSING' && <p className="watch-message" role="status">Preparing quality options… The original is available now.</p>}
+            {processingStatus === 'FAILED' && <p className="watch-message" role="status">Quality processing failed. The original video is still available.</p>}
+            {qualities.length > 0 && <label className="watch-quality">Quality{' '}
+              <select value={selectedQuality} onChange={event => setSelectedQuality(event.target.value)}>
+                <option value="source">Original</option>
+                {qualities.map(quality => <option key={quality} value={quality}>{quality}</option>)}
+              </select>
+            </label>}
+            <video className="watch-player" src={selectedQuality === 'source' ? video.videoUrl : `/api/videos/${videoId}/renditions/${selectedQuality}`} poster={video.thumbnailUrl || undefined} controls autoPlay playsInline />
             <h1 className="watch-title">{video.title}</h1>
             <a className="watch-channel" href={`/channel/${video.channelId}`} onClick={event => { event.preventDefault(); onSelectChannel(video.channelId); }}>{video.channelName}</a>
 

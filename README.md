@@ -30,7 +30,9 @@ cd ITube
 cd backend
 ./mvnw spring-boot:run        # Windows CMD/PowerShell: mvnw.cmd spring-boot:run
 ```
-The API starts on http://localhost:8080. It has no endpoints yet.
+The API starts on http://localhost:8080. For video quality processing, start the local infrastructure with `make up` from `tf_docker` first and install FFmpeg on the backend machine. The worker looks for `ffmpeg` on `PATH` by default; set `FFMPEG_PATH` to its executable if needed. Kafka defaults to `localhost:9092` and can be overridden with `KAFKA_BOOTSTRAP_SERVERS`.
+
+Uploaded videos are kept in PostgreSQL for this first implementation. Kafka schedules background FFmpeg jobs that create 360p and 720p MP4 renditions. The API reports `PROCESSING`, `READY`, or `FAILED`; while processing, the original remains playable. Quality files are also stored in PostgreSQL, so this is suitable for local development/small demos rather than production-scale media storage.
 
 ### 2. Run the frontend (in a second terminal)
 ```bash

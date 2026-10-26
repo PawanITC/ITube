@@ -42,6 +42,9 @@ public class VideoEntity {
     @Column(name = "duration", nullable = false)
     private LocalTime duration;
 
+    @Column(name = "processing_status", nullable = false, length = 20)
+    private String processingStatus = "PROCESSING";
+
     public VideoEntity() {
     }
 
@@ -52,6 +55,7 @@ public class VideoEntity {
     public void setThumbnailContentType(String thumbnailContentType) { this.thumbnailContentType = thumbnailContentType; }
     public void setTitle(String title) { this.title = title; }
     public void setDuration(LocalTime duration) { this.duration = duration; }
+    public void setProcessingStatus(String processingStatus) { this.processingStatus = processingStatus; }
 
     public Long getVideoId() { return videoId; }
     public byte[] getVideo() { return video; }
@@ -61,4 +65,5 @@ public class VideoEntity {
     public String getTitle() { return title; }
     public LocalTime getDuration() { return duration; }
     public ChannelEntity getChannel() { return channel; }
+    public String getProcessingStatus() { return processingStatus; }
 }

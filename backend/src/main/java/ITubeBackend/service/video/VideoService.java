@@ -10,21 +10,26 @@ import ITubeBackend.repository.VideoRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
+
+// SOMETHING NEW HERE, DONT KNOW WHAT
 
 @Service
 public class VideoService {
     private final ChannelRepository channelRepository;
     private final VideoRepository videoRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
-    public VideoService(ChannelRepository channelRepository, VideoRepository videoRepository) {
+    public VideoService(ChannelRepository channelRepository, VideoRepository videoRepository, ApplicationEventPublisher eventPublisher) {
         this.channelRepository = channelRepository;
         this.videoRepository = videoRepository;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
-    public void saveVideo(CreateVideo createVideo) {
+    public Long saveVideo(CreateVideo createVideo) {
         if (createVideo.title() == null || createVideo.title().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Video title is required");
         }
@@ -46,7 +51,10 @@ public class VideoService {
         video.setThumbnailContentType(createVideo.thumbnailContentType());
         video.setTitle(createVideo.title().trim());
         video.setDuration(createVideo.duration());
-        videoRepository.save(video);
+        video.setProcessingStatus("PROCESSING");
+        Long videoId = videoRepository.save(video).getVideoId();
+        eventPublisher.publishEvent(new VideoUploadedEvent(videoId));
+        return videoId;
     }
 
     @Transactional(readOnly = true)
@@ -64,6 +72,31 @@ public class VideoService {
     public VideoAssetDto getThumbnail(Long videoId) {
         return videoRepository.findThumbnailAsset(videoId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Thumbnail not found"));
+    }
+
+    @Transactional(readOnly = true)
+    public List<String> getQualities(Long videoId) {
+        if (!videoRepository.existsById(videoId)) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Video not found");
+        return videoRepository.findRenditionQualities(videoId);
+    }
+
+    @Transactional(readOnly = true)
+    public VideoAssetDto getRendition(Long videoId, String quality) {
+        return videoRepository.findRendition(videoId, quality)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Video quality not found"));
+    }
+
+    @Transactional
+    public void saveRendition(Long videoId, String quality, byte[] bytes) {
+        videoRepository.saveRendition(videoId, quality, bytes);
+    }
+
+    @Transactional
+    public VideoAssetDto getSourceForTranscoding(Long videoId) { return getVideoFile(videoId); }
+
+    @Transactional
+    public void setProcessingStatus(Long videoId, String status) {
+        videoRepository.findById(videoId).ifPresent(video -> video.setProcessingStatus(status));
     }
 
 }
