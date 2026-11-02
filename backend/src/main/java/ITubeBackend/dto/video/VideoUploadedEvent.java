@@ -1,4 +1,4 @@
-package ITubeBackend.service.video;
+package ITubeBackend.dto.video;
 
 // REVIEW RECORD MOVE
 

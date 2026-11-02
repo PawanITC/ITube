@@ -3,6 +3,7 @@ package ITubeBackend.service.video;
 import ITubeBackend.dto.video.CreateVideo;
 import ITubeBackend.dto.video.VideoSummaryDto;
 import ITubeBackend.dto.video.VideoAssetDto;
+import ITubeBackend.dto.video.VideoUploadedEvent;
 import ITubeBackend.entities.ChannelEntity;
 import ITubeBackend.entities.VideoEntity;
 import ITubeBackend.repository.ChannelRepository;
@@ -84,11 +85,6 @@ public class VideoService {
     public VideoAssetDto getRendition(Long videoId, String quality) {
         return videoRepository.findRendition(videoId, quality)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Video quality not found"));
-    }
-
-    @Transactional
-    public void saveRendition(Long videoId, String quality, byte[] bytes) {
-        videoRepository.saveRendition(videoId, quality, bytes);
     }
 
     @Transactional

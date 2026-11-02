@@ -134,20 +134,32 @@ resource "docker_container" "kafka" {
   env = [
     "KAFKA_NODE_ID=1",
     "KAFKA_PROCESS_ROLES=broker,controller",
-    "KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093",
-    "KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092",
+    "KAFKA_LISTENERS=PLAINTEXT://:9092,INTERNAL://:29092,CONTROLLER://:9093",
+    "KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092,INTERNAL://itube-kafka:29092",
     "KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER",
-    "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT",
+    "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT",
     "KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093",
     "KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1",
     "KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1",
     "KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1",
     "KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0",
     "KAFKA_NUM_PARTITIONS=3",
+    "KAFKA_LOG_DIRS=/var/lib/kafka/data",
+    # Renditions go through Kafka to the sink connector, so allow messages up to 100MB
+    "KAFKA_MESSAGE_MAX_BYTES=104857600",
   ]
+
+  volumes {
+    volume_name    = "kafka_data"
+    container_path = "/var/lib/kafka/data"
+  }
 
   ports {
     internal = 9092
     external = 9092
+  }
+
+  networks_advanced {
+    name = docker_network.database.name
   }
 }

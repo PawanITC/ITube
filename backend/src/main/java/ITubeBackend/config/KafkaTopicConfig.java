@@ -12,4 +12,9 @@ public class KafkaTopicConfig {
     NewTopic videoTranscodeTopic(@Value("${itube.video.transcode-topic}") String topic) {
         return TopicBuilder.name(topic).partitions(3).replicas(1).build();
     }
+
+    @Bean
+    NewTopic videoRenditionTopic(@Value("${itube.video.rendition-topic}") String topic) {
+        return TopicBuilder.name(topic).partitions(3).replicas(1).build();
+    }
 }

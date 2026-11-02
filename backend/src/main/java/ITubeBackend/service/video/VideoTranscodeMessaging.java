@@ -1,5 +1,6 @@
 package ITubeBackend.service.video;
 
+import ITubeBackend.dto.video.VideoUploadedEvent;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
