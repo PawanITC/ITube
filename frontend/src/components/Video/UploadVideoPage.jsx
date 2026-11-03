@@ -58,6 +58,7 @@ export default function UploadVideoPage({ session, onCancel }) {
   const [title, setTitle] = useState('');
   const [duration, setDuration] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const fileInput = useRef(null);
@@ -141,17 +142,35 @@ export default function UploadVideoPage({ session, onCancel }) {
     if (thumbnail) form.append('thumbnail', thumbnail, thumbnail.name || 'thumbnail.jpg');
 
     setUploading(true);
+    setUploadProgress(0);
     try {
-      const response = await fetch('/api/videos', {
-        method: 'POST',
-        credentials: 'include',
-        body: form,
+      await new Promise((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open('POST', '/api/videos');
+        request.withCredentials = true;
+        request.upload.onprogress = progressEvent => {
+          if (progressEvent.lengthComputable) {
+            setUploadProgress(Math.min(100, Math.round((progressEvent.loaded / progressEvent.total) * 100)));
+          }
+        };
+        request.onload = () => {
+          if (request.status === 401) {
+            reject(new Error('Your session expired. Click the ITube logo to start a new session.'));
+            return;
+          }
+          if (request.status < 200 || request.status >= 300) {
+            let problem;
+            try { problem = JSON.parse(request.responseText); } catch { /* The response may not contain JSON. */ }
+            reject(new Error(problem?.detail || 'Upload failed. Please try again.'));
+            return;
+          }
+          resolve();
+        };
+        request.onerror = () => reject(new Error('Upload failed because of a network error. Please try again.'));
+        request.onabort = () => reject(new Error('Upload was cancelled.'));
+        request.send(form);
       });
-      if (response.status === 401) throw new Error('Your session expired. Click the ITube logo to start a new session.');
-      if (!response.ok) {
-        const problem = await response.json().catch(() => null);
-        throw new Error(problem?.detail || 'Upload failed. Please try again.');
-      }
+      setUploadProgress(100);
       setSuccess('Your video was posted. Quality options are processing in the background.');
       setFile(null);
       setTitle('');
@@ -189,6 +208,10 @@ export default function UploadVideoPage({ session, onCancel }) {
 
             {error && <p className="upload-error" role="alert">{error}</p>}
             {success && <p className="upload-success" role="status">{success}</p>}
+            {uploading && <div className="upload-progress" role="status" aria-live="polite">
+              <div className="upload-progress-label"><span>Uploading video</span><span>{uploadProgress}%</span></div>
+              <progress aria-label="Video upload progress" max="100" value={uploadProgress} />
+            </div>}
 
             <button className="upload-submit" type="submit" disabled={uploading || sessionLoading || !activeSession}>
               {uploading ? 'Posting…' : 'Post video'}

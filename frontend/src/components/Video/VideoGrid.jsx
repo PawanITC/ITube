@@ -1,4 +1,4 @@
-import VideoCard from './VideoCard';
+import VideoCard from './VideoCard.jsx';
 
 export default function VideoGrid({ videos, loading, error, onSelectVideo, onSelectChannel }) {
   if (loading) return <div className="empty-state"><p>Loading videos…</p></div>;

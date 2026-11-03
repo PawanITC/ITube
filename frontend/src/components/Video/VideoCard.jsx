@@ -1,4 +1,4 @@
-import Icon from './Icon';
+import Icon from '../Icon.jsx';
 
 export default function VideoCard({ video, onSelectVideo, onSelectChannel }) {
   const initials = video.channelName?.trim().slice(0, 1).toUpperCase() || '?';

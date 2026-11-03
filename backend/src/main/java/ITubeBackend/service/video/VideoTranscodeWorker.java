@@ -8,8 +8,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-// REVIEW
-
 @Service
 public class VideoTranscodeWorker {
     private final VideoService videoService;
@@ -23,7 +21,6 @@ public class VideoTranscodeWorker {
     public void transcode(Long videoId) {
         Path workDir = null;
         try {
-            videoService.setProcessingStatus(videoId, "PROCESSING");
             VideoAssetDto source = videoService.getSourceForTranscoding(videoId);
             workDir = Files.createTempDirectory("itube-transcode-");
             Path input = workDir.resolve("source");

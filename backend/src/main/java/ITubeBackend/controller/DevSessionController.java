@@ -1,7 +1,7 @@
 package ITubeBackend.controller;
 
 import ITubeBackend.dto.accounts.DevSessionDto;
-import ITubeBackend.dto.ChannelDto;
+import ITubeBackend.dto.channel.ChannelDto;
 import ITubeBackend.repository.ChannelRepository;
 import ITubeBackend.service.account.AccountService;
 import ITubeBackend.service.video.VideoService;

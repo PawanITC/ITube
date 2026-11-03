@@ -1,6 +1,6 @@
 package ITubeBackend.service.channel;
 
-import ITubeBackend.dto.SubscriptionStatusDto;
+import ITubeBackend.dto.subscribtions.SubscriptionStatusDto;
 import ITubeBackend.repository.ChannelRepository;
 import ITubeBackend.repository.SubscriptionRepository;
 import org.springframework.http.HttpStatus;

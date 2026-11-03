@@ -1,4 +1,4 @@
-package ITubeBackend.dto;
+package ITubeBackend.dto.channel;
 
 import ITubeBackend.dto.video.VideoSummaryDto;
 

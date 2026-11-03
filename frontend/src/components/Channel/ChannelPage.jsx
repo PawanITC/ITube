@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import VideoGrid from './VideoGrid';
+import VideoGrid from '../VideoGrid.jsx';
 
 function formatSubscriberCount(count) {
   return `${count} ${count === 1 ? 'subscriber' : 'subscribers'}`;

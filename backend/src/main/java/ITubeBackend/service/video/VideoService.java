@@ -3,6 +3,7 @@ package ITubeBackend.service.video;
 import ITubeBackend.dto.video.CreateVideo;
 import ITubeBackend.dto.video.VideoSummaryDto;
 import ITubeBackend.dto.video.VideoAssetDto;
+import ITubeBackend.dto.video.VideoUploadedEvent;
 import ITubeBackend.entities.ChannelEntity;
 import ITubeBackend.entities.VideoEntity;
 import ITubeBackend.repository.ChannelRepository;
@@ -13,8 +14,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
-
-// SOMETHING NEW HERE, DONT KNOW WHAT
 
 @Service
 public class VideoService {
@@ -92,7 +91,9 @@ public class VideoService {
     }
 
     @Transactional
-    public VideoAssetDto getSourceForTranscoding(Long videoId) { return getVideoFile(videoId); }
+    public VideoAssetDto getSourceForTranscoding(Long videoId) {
+        return getVideoFile(videoId);
+    }
 
     @Transactional
     public void setProcessingStatus(Long videoId, String status) {

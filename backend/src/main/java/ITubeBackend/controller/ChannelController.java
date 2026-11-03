@@ -1,9 +1,9 @@
 package ITubeBackend.controller;
 
-import ITubeBackend.dto.ChannelDetailsDto;
-import ITubeBackend.dto.ChannelDto;
-import ITubeBackend.dto.ChannelSearchDto;
-import ITubeBackend.dto.SubscriptionStatusDto;
+import ITubeBackend.dto.channel.ChannelDetailsDto;
+import ITubeBackend.dto.channel.ChannelDto;
+import ITubeBackend.dto.channel.ChannelSearchDto;
+import ITubeBackend.dto.subscribtions.SubscriptionStatusDto;
 import ITubeBackend.repository.ChannelRepository;
 import ITubeBackend.service.channel.ChannelService;
 import ITubeBackend.service.channel.SubscriptionService;
