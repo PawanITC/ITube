@@ -1,23 +1,37 @@
 openapi: 3.1.0
 info:
   title: ITube API
-  version: 0.1.0
+  version: 0.2.0
   description: |
     REST API for the ITube video platform (Spring Boot backend).
     This file is the single source of truth for the API contract until the backend
     generates its own spec. Add each new endpoint here as it is built.
+
+    **Authentication:** endpoints marked "session" need the session cookie created by
+    `POST /api/session/dev` (temporary until login is finished). The user is always taken
+    from the session, never from the request body.
+
+    **Money** is always in minor units (pence) with a lowercase ISO currency, and prices
+    are always taken from the server, never from the client.
 servers:
   - url: /api
     description: Local dev (Vite proxies /api to http://localhost:8080)
 tags:
   - name: Videos
-    description: Browsing and searching videos
+    description: Browsing, playback and visibility
+  - name: Memberships
+    description: Paid channel memberships (free Subscribe is separate and never involves payment)
+  - name: Payments
+    description: Stripe Checkout, Customer Portal and webhooks
 paths:
   /videos:
     get:
       tags: [Videos]
       summary: List videos
-      description: Returns video metadata, including transcoding status.
+      description: |
+        Returns public and members-only videos with their transcoding status. Unlisted and
+        private videos are not listed. Members-only videos have no `videoUrl`; call
+        `/videos/{videoId}/playback-authorisation` to get a playable URL.
       responses:
         '200':
           description: A list of videos
@@ -27,6 +41,61 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Video'
+  /videos/{videoId}/playback-authorisation:
+    get:
+      tags: [Videos]
+      summary: Check whether the viewer may play a video
+      description: |
+        Entitlement is checked on the server. For members-only and private videos an allowed
+        response includes a short-lived token (default 10 minutes) to append as `?token=` to
+        `/file` and `/renditions/{quality}`. Session is optional.
+      parameters:
+        - $ref: '#/components/parameters/VideoId'
+      responses:
+        '200':
+          description: Decision, and a token when allowed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlaybackAuthorisation' }
+        '404': { description: Video not found (also returned for other people's private videos) }
+  /videos/{videoId}/visibility:
+    patch:
+      tags: [Videos]
+      summary: Change a video's visibility (channel owner)
+      parameters:
+        - $ref: '#/components/parameters/VideoId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [visibility]
+              properties:
+                visibility: { $ref: '#/components/schemas/Visibility' }
+                requiredTierLevel:
+                  type: integer
+                  minimum: 1
+                  maximum: 10
+                  description: Members-only only. Omit for "any paid tier".
+      responses:
+        '204': { description: Updated }
+        '403': { description: Not the channel owner }
+  /videos/{videoId}/file:
+    get:
+      tags: [Videos]
+      summary: Get the original video file
+      parameters:
+        - $ref: '#/components/parameters/VideoId'
+        - $ref: '#/components/parameters/PlaybackToken'
+      responses:
+        '200':
+          description: "Video data. Non-public videos are sent with `Cache-Control: no-store, private`."
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+        '403': { description: Members-only or private video requested without a valid token }
+        '404': { description: Video not found }
   /videos/{videoId}/qualities:
     get:
       tags: [Videos]
@@ -51,13 +120,232 @@ paths:
           in: path
           required: true
           schema: { type: string, enum: [360p, 720p] }
+        - $ref: '#/components/parameters/PlaybackToken'
       responses:
         '200':
           description: MP4 video data
           content:
             video/mp4:
               schema: { type: string, format: binary }
+        '403': { description: Members-only or private video requested without a valid token }
         '404': { description: Video or rendition not found }
+
+  /memberships/channels/{channelId}/tiers:
+    get:
+      tags: [Memberships]
+      summary: List a channel's membership tiers
+      description: Perks include those inherited from lower tiers. Session optional; when present, `currentMembership` shows the viewer's membership.
+      parameters:
+        - $ref: '#/components/parameters/ChannelId'
+      responses:
+        '200':
+          description: Tiers
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChannelTiers' }
+        '404': { description: Channel not found }
+    post:
+      tags: [Memberships]
+      summary: Create a tier (channel owner, session)
+      description: Creates a Stripe Product and monthly Price for the tier.
+      parameters:
+        - $ref: '#/components/parameters/ChannelId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTier' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tier' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { description: Not the channel owner }
+        '409': { description: Level already used, or tier limit reached }
+  /memberships/tiers/{tierId}:
+    patch:
+      tags: [Memberships]
+      summary: Update a tier (channel owner, session)
+      description: Null fields are unchanged. A new price creates a new Stripe Price for new members; existing members keep their price.
+      parameters:
+        - $ref: '#/components/parameters/TierId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, maxLength: 80 }
+                description: { type: string, maxLength: 500 }
+                priceMinor: { type: integer, format: int64 }
+                perks: { type: array, items: { $ref: '#/components/schemas/PerkRequest' } }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tier' }
+    delete:
+      tags: [Memberships]
+      summary: Archive a tier (channel owner, session)
+      description: Stops new sign-ups. Existing members keep their membership until they cancel.
+      parameters:
+        - $ref: '#/components/parameters/TierId'
+      responses:
+        '204': { description: Archived }
+  /memberships/me:
+    get:
+      tags: [Memberships]
+      summary: My paid memberships (session)
+      responses:
+        '200':
+          description: Memberships, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Membership' }
+  /memberships/{membershipId}/tier:
+    post:
+      tags: [Memberships]
+      summary: Upgrade or downgrade (session, own membership)
+      description: |
+        Upgrades are charged the prorated difference immediately and only applied if that payment
+        succeeds. Downgrades apply immediately with the unused amount credited to the next invoice.
+      parameters:
+        - $ref: '#/components/parameters/MembershipId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tierId]
+              properties:
+                tierId: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: Updated membership
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Membership' }
+        '402': { description: Upgrade payment failed; tier unchanged }
+        '404': { description: Membership or tier not found }
+  /memberships/{membershipId}/cancel:
+    post:
+      tags: [Memberships]
+      summary: Cancel at the end of the paid period (session, own membership)
+      parameters:
+        - $ref: '#/components/parameters/MembershipId'
+      responses:
+        '200':
+          description: Updated membership (access continues until currentPeriodEnd)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Membership' }
+  /memberships/{membershipId}/resume:
+    post:
+      tags: [Memberships]
+      summary: Undo a pending cancellation (session, own membership)
+      parameters:
+        - $ref: '#/components/parameters/MembershipId'
+      responses:
+        '200':
+          description: Updated membership
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Membership' }
+
+  /payments/checkout/channel-membership:
+    post:
+      tags: [Payments]
+      summary: Start Stripe Checkout for a membership (session)
+      description: |
+        Returns a Stripe-hosted Checkout URL to redirect to. Repeat requests for the same tier
+        reuse the open session. Access is granted only when Stripe's webhook confirms payment,
+        never by the return page. Rate limited per user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tierId]
+              properties:
+                tierId: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: Checkout created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  checkoutSessionId: { type: string, example: cs_test_a1b2c3 }
+                  checkoutUrl: { type: string, format: uri }
+        '400': { description: Cannot join your own channel }
+        '409': { description: Already a member of this channel }
+        '429': { description: Too many attempts }
+        '502': { description: Stripe could not complete the request }
+  /payments/checkout/sessions/{checkoutSessionId}:
+    get:
+      tags: [Payments]
+      summary: Checkout status for the return page (session, own checkout)
+      parameters:
+        - name: checkoutSessionId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Local status; membership is null until the webhook has been processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [OPEN, COMPLETE, EXPIRED] }
+                  purpose: { type: string, example: CHANNEL_MEMBERSHIP }
+                  channelId: { type: integer, format: int64 }
+                  membership: { oneOf: [{ $ref: '#/components/schemas/Membership' }, { type: 'null' }] }
+  /payments/billing-portal:
+    post:
+      tags: [Payments]
+      summary: Open the Stripe Customer Portal (session)
+      responses:
+        '200':
+          description: Portal URL to redirect to
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url: { type: string, format: uri }
+        '404': { description: No billing account yet }
+  /webhooks/stripe:
+    post:
+      tags: [Payments]
+      summary: Stripe webhook receiver (called by Stripe, not the frontend)
+      description: |
+        No session. Authenticated by the `Stripe-Signature` header, verified against the raw
+        body. Events are stored idempotently and processed in the background.
+      parameters:
+        - name: Stripe-Signature
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200': { description: Stored (or already received) }
+        '400': { description: Missing or invalid signature }
+
 components:
   parameters:
     VideoId:
@@ -65,10 +353,45 @@ components:
       in: path
       required: true
       schema: { type: integer, format: int64 }
+    ChannelId:
+      name: channelId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    TierId:
+      name: tierId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    MembershipId:
+      name: membershipId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    PlaybackToken:
+      name: token
+      in: query
+      required: false
+      description: Required for members-only and private videos; from playback-authorisation.
+      schema: { type: string }
+  responses:
+    Problem:
+      description: Error (RFC 9457 problem details)
+      content:
+        application/problem+json:
+          schema:
+            type: object
+            properties:
+              title: { type: string }
+              status: { type: integer }
+              detail: { type: string }
   schemas:
+    Visibility:
+      type: string
+      enum: [PUBLIC, UNLISTED, PRIVATE, MEMBERS_ONLY]
     Video:
       type: object
-      required: [videoId, title, channelName, processingStatus]
+      required: [videoId, title, channelName, processingStatus, visibility]
       properties:
         videoId: { type: integer, format: int64 }
         channelId: { type: integer, format: int64 }
@@ -82,7 +405,87 @@ components:
         processingStatus:
           type: string
           enum: [PROCESSING, READY, FAILED]
+        visibility: { $ref: '#/components/schemas/Visibility' }
+        requiredTierLevel:
+          type: [integer, 'null']
+          description: Minimum tier level for members-only videos; null means any tier.
         videoUrl:
-          type: string
+          type: [string, 'null']
+          description: Null for members-only videos.
         thumbnailUrl:
+          type: [string, 'null']
+    PlaybackAuthorisation:
+      type: object
+      properties:
+        videoId: { type: integer, format: int64 }
+        channelId: { type: integer, format: int64 }
+        visibility: { $ref: '#/components/schemas/Visibility' }
+        requiredTierLevel: { type: [integer, 'null'] }
+        allowed: { type: boolean }
+        reason:
+          type: [string, 'null']
+          enum: [SIGN_IN_REQUIRED, MEMBERSHIP_REQUIRED, HIGHER_TIER_REQUIRED, PRIVATE, null]
+        sourceUrl: { type: [string, 'null'], example: "/api/videos/42/file?token=..." }
+        token: { type: [string, 'null'] }
+        expiresAt: { type: [string, 'null'], format: date-time }
+    PerkType:
+      type: string
+      enum: [MEMBERS_ONLY_VIDEOS, MEMBERS_ONLY_SHORTS, MEMBERS_ONLY_LIVESTREAMS, EARLY_ACCESS,
+             COMMUNITY_POSTS, LOYALTY_BADGE, CUSTOM_EMOJI, MEMBERS_ONLY_CHAT, CUSTOM]
+    PerkRequest:
+      type: object
+      required: [type, description]
+      properties:
+        type: { $ref: '#/components/schemas/PerkType' }
+        description: { type: string, maxLength: 255 }
+    CreateTier:
+      type: object
+      required: [name, level, priceMinor]
+      properties:
+        name: { type: string, maxLength: 80, example: Supporter }
+        description: { type: string, maxLength: 500 }
+        level: { type: integer, minimum: 1, maximum: 10, example: 1 }
+        priceMinor: { type: integer, format: int64, example: 299, description: "Monthly price in pence (default range 99-49999)" }
+        perks: { type: array, items: { $ref: '#/components/schemas/PerkRequest' } }
+    Tier:
+      type: object
+      properties:
+        tierId: { type: integer, format: int64 }
+        channelId: { type: integer, format: int64 }
+        name: { type: string }
+        description: { type: [string, 'null'] }
+        level: { type: integer }
+        priceMinor: { type: integer, format: int64, example: 299 }
+        currency: { type: string, example: gbp }
+        perks:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { $ref: '#/components/schemas/PerkType' }
+              description: { type: string }
+              fromLevel: { type: integer, description: Tier level that introduced this perk }
+    ChannelTiers:
+      type: object
+      properties:
+        channelId: { type: integer, format: int64 }
+        channelName: { type: string }
+        owner: { type: boolean }
+        tiers: { type: array, items: { $ref: '#/components/schemas/Tier' } }
+        currentMembership: { oneOf: [{ $ref: '#/components/schemas/Membership' }, { type: 'null' }] }
+    Membership:
+      type: object
+      properties:
+        membershipId: { type: integer, format: int64 }
+        channelId: { type: integer, format: int64 }
+        channelName: { type: string }
+        tierId: { type: integer, format: int64 }
+        tierName: { type: string }
+        tierLevel: { type: integer }
+        status:
           type: string
+          description: Mirrors the Stripe subscription status
+          enum: [incomplete, incomplete_expired, trialing, active, past_due, canceled, unpaid, paused]
+        hasAccess: { type: boolean }
+        cancelAtPeriodEnd: { type: boolean }
+        currentPeriodEnd: { type: [string, 'null'], format: date-time }

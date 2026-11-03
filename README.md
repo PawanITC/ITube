@@ -105,6 +105,18 @@ Example:
 ```
 
 
+## Payments (Stripe)
+
+Paid channel memberships use Stripe Checkout, Billing and webhooks. **Free Subscribe is a separate feature and never involves payment.**
+
+- **How it works:** [docs/payments/ARCHITECTURE.md](docs/payments/ARCHITECTURE.md) covers the architecture diagram, money flows, database, Connect plan, PCI/GDPR and phases.
+- **Run and test locally:** [docs/payments/TESTING.md](docs/payments/TESTING.md) covers keys, the Stripe CLI, test cards, a manual test script, and the Dashboard settings you need.
+
+Quick start:
+1. `cp backend/.env.example backend/.env` and add a Stripe **sandbox** key. `.env` is git-ignored: never commit keys.
+2. `stripe listen --forward-to localhost:8080/api/webhooks/stripe` and put the printed `whsec_…` in `STRIPE_WEBHOOK_SECRET`.
+3. Start the backend and frontend as above. Without a Stripe key the app still runs, and payment endpoints return `503`.
+
 Terraform:
 
 Install Terraform --- Follow this video `https://www.youtube.com/watch?v=ntf5mvIvE2k`

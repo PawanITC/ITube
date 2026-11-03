@@ -130,6 +130,7 @@ What this means:
 - **Data minimisation:** iTube sends Stripe only the account email, used for receipts. Metadata carries internal numeric IDs only. Kafka events carry IDs and states only, with no names or emails. Logs record Stripe object IDs and error codes, never request bodies or keys.
 - **Secrets:** `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` come from environment variables (or a local, git-ignored `backend/.env` in development). In production, use the platform's secrets manager and a **restricted API key** (`rk_…`) limited to Customers, Checkout Sessions, Subscriptions, Products, Prices, Billing Portal, Invoices (read), Charges/Refunds (read) and Disputes (read).
 - **Retention and deletion:** `webhook_inbox` payloads can contain customer data, so processed rows are purged after `itube.stripe.webhook-retention` (default 30 days). Financial records (`payments`, `refund_records`) are kept for the statutory period (6 years in the UK); on account deletion they are anonymised through `user_id ON DELETE SET NULL`. The Stripe Customer can be deleted through the API as part of an erasure request.
+- **Managed Payments:** the sandbox account has Stripe Managed Payments **on by default**. That makes Stripe the merchant of record for digital goods, which conflicts with the Connect plan in §3, so iTube must decide before launch. Either way, tier Products now carry a tax code (`itube.payments.membership-tax-code`, default `txcd_10402200`, streamed audio-visual subscription), which both Managed Payments and Stripe Tax require.
 - **Still to review before launch:** VAT (consider Stripe Tax, which only collects tax once a registration is active), age restrictions for paying users, and app-store billing rules if native mobile apps are released.
 
 ## 5. Database
@@ -147,7 +148,7 @@ The schema is in `backend/src/main/resources/schema-payments.sql`. Conventions:
 | `membership_perks` | Perks per tier. Higher levels inherit lower-level perks at read time | FK → tier |
 | `channel_memberships` | Local copy of each membership Subscription | `UNIQUE(stripe_subscription_id)`; **one live membership per (user, channel)** (partial unique index) |
 | `payments` | Every successful or failed charge (membership invoices now, tips later) with fee split | `UNIQUE(stripe_invoice_id)`, `UNIQUE(stripe_payment_intent_id)` |
-| `refund_records` | Refunds and disputes against a payment | `UNIQUE(stripe_charge_id, kind)`, `UNIQUE(stripe_dispute_id)` |
+| `refund_records` | Refunds and disputes against a payment | one cumulative `REFUND` row per charge (partial unique index), `UNIQUE(stripe_dispute_id)` |
 | `webhook_inbox` | Durable, deduplicated Stripe events | `UNIQUE(stripe_event_id)` |
 | `outbox_events` | Kafka events written in the same transaction as the state change | `UNIQUE(event_id)` |
 | `premium_subscriptions` | Phase 3 | one live Premium per user |
@@ -197,7 +198,19 @@ Phase 3+ endpoints from the brief (`/checkout/premium`, `/checkout/tip`, `/premi
 - Checkout creation, tier changes and portal sessions are limited per user with a Redis fixed-window counter (`itube.payments.rate-limit.*`). If Redis is down the limiter allows the request and logs a warning; Stripe's own rate limits still apply.
 - Actuator exposes `health` (DB, Redis, Kafka) and `metrics`. Counters: `itube.stripe.webhook.received`, `.processed`, `.failed`, `itube.outbox.published`, `itube.outbox.failed`. Traces and logs go to the existing OpenTelemetry pipeline (Grafana LGTM).
 
-## 10. Phases
+## 10. Verified in the Stripe sandbox
+
+Besides the 52 automated tests, the integration was run end to end against real infrastructure (PostgreSQL, Redis and Kafka in Docker) and the Stripe sandbox, on 3 November 2026:
+
+- The schema migration and Hibernate validation pass. Tier creation makes real Stripe Products and Prices. Checkout Sessions are created, reused on repeat clicks, and expired when the tier changes.
+- A real Subscription was created with Stripe's test card. Its real events were fetched from Stripe, signed with the local webhook secret, and delivered **newest first and twice each**. The result was one membership, one £2.99 payment row, and exactly one `membership.activated` message on Kafka.
+- Members-only playback: no token gives `403`; non-members get `MEMBERSHIP_REQUIRED`; signed-out viewers get `SIGN_IN_REQUIRED`; the member's token works for that video only and is sent with `no-store`; a Supporter on a VIP video gets `HIGHER_TIER_REQUIRED`.
+- Upgrading to VIP produced a real prorated £7.00 invoice and `membership.tier-changed`. Cancelling at period end kept access. Ending the subscription produced `membership.expired` and removed access, and the late `customer.subscription.created` replay changed nothing.
+- A real refund was traced through Stripe's object graph (PaymentIntent → invoice → local payment) and recorded as `REFUNDED`. A forged signature got `400`, and the billing portal opened.
+- **Found and fixed:** Checkout was rejected because Managed Payments requires a product tax code (see §4).
+- **Not run:** a real browser completing hosted Checkout (the subscription was created through the API with the same result), and the Stripe CLI, which wasn't available in the build environment.
+
+## 11. Phases
 
 | Phase | Scope | Status |
 |---|---|---|
