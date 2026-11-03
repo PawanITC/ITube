@@ -15,8 +15,6 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 
-// SOMETHING NEW HERE, DONT KNOW WHAT
-
 @Service
 public class VideoService {
     private final ChannelRepository channelRepository;

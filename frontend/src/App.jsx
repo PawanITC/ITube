@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
-import VideoGrid from './components/VideoGrid';
-import UploadVideoPage from './components/UploadVideoPage';
-import WatchPage from './components/WatchPage';
-import ChannelGrid from './components/ChannelGrid';
-import ChannelPage from './components/ChannelPage';
+import VideoGrid from './components/Video/VideoGrid';
+import UploadVideoPage from './components/Video/UploadVideoPage';
+import WatchPage from './components/Video/WatchPage';
+import ChannelGrid from './components/Channel/ChannelGrid';
+import ChannelPage from './components/Channel/ChannelPage';
 import './App.css';
 
 function readRoute() {

@@ -49,8 +49,9 @@ provider "kafka-connect" {
 }
 
 resource "kafka-connect_connector" "video_rendition_sink" {
-  name = "video-rendition-sink"
+  name = "video_rendition_sink"
   config = {
+    "name"                                        = "video_rendition_sink"
     "connector.class"                             = "io.debezium.connector.jdbc.JdbcSinkConnector"
     "topics"                                      = "video.rendition"
     "connection.url"                              = "jdbc:postgresql://itube-postgres:5432/itube"

@@ -11,8 +11,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
-// REVIEW
-
 @Component
 public class VideoTranscodeMessaging {
     private final KafkaTemplate<String, String> kafkaTemplate;
