@@ -3,9 +3,12 @@ package ITubeBackend.controller;
 import ITubeBackend.dto.video.CreateVideo;
 import ITubeBackend.dto.video.VideoSummaryDto;
 import ITubeBackend.dto.video.VideoAssetDto;
+import ITubeBackend.dto.video.VideoStreamInfo;
 import ITubeBackend.service.video.VideoService;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpRange;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -13,6 +16,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
@@ -20,6 +24,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.io.IOException;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.function.BiFunction;
 
 @RestController
 public class VideoController {
@@ -62,16 +67,17 @@ public class VideoController {
     }
 
     @GetMapping("/api/videos/{videoId}/renditions/{quality}")
-    public ResponseEntity<byte[]> getRendition(@PathVariable Long videoId, @PathVariable String quality) {
-        VideoAssetDto asset = videoService.getRendition(videoId, quality);
-        return ResponseEntity.ok().contentType(MediaType.parseMediaType(asset.contentType())).body(asset.content());
+    public ResponseEntity<byte[]> getRendition(@PathVariable Long videoId, @PathVariable String quality,
+                                               @RequestHeader(value = HttpHeaders.RANGE, required = false) String range) {
+        VideoStreamInfo info = videoService.getRenditionStreamInfo(videoId, quality);
+        return videoService.streamRange(info, range, (start, length) -> videoService.getRenditionChunk(videoId, quality, start, length));
     }
 
     @GetMapping("/api/videos/{videoId}/file")
-    public ResponseEntity<byte[]> getVideoFile(@org.springframework.web.bind.annotation.PathVariable Long videoId) {
-        VideoAssetDto asset = videoService.getVideoFile(videoId);
-        MediaType contentType = MediaType.parseMediaType(asset.contentType());
-        return ResponseEntity.ok().contentType(contentType).body(asset.content());
+    public ResponseEntity<byte[]> getVideoFile(@PathVariable Long videoId,
+                                               @RequestHeader(value = HttpHeaders.RANGE, required = false) String range) {
+        VideoStreamInfo info = videoService.getVideoStreamInfo(videoId);
+        return videoService.streamRange(info, range, (start, length) -> videoService.getVideoChunk(videoId, start, length));
     }
 
     @GetMapping("/api/videos/{videoId}/thumbnail")

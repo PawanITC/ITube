@@ -3,20 +3,24 @@ package ITubeBackend.service.video;
 import ITubeBackend.dto.video.CreateVideo;
 import ITubeBackend.dto.video.VideoSummaryDto;
 import ITubeBackend.dto.video.VideoAssetDto;
+import ITubeBackend.dto.video.VideoStreamInfo;
 import ITubeBackend.dto.video.VideoUploadedEvent;
 import ITubeBackend.entities.ChannelEntity;
 import ITubeBackend.entities.VideoEntity;
 import ITubeBackend.repository.ChannelRepository;
 import ITubeBackend.repository.VideoRepository;
-import org.springframework.http.HttpStatus;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
+import java.util.function.BiFunction;
+
 
 @Service
 public class VideoService {
+    private static final long MAX_CHUNK_BYTES = 4L * 1024 * 1024;
     private final ChannelRepository channelRepository;
     private final VideoRepository videoRepository;
     private final ApplicationEventPublisher eventPublisher;
@@ -85,6 +89,32 @@ public class VideoService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Video quality not found"));
     }
 
+    @Transactional(readOnly = true)
+    public VideoStreamInfo getVideoStreamInfo(Long videoId) {
+        return videoRepository.findVideoStreamInfo(videoId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Video not found"));
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] getVideoChunk(Long videoId, long start, int length) {
+        return videoRepository.findVideoChunk(videoId, Math.toIntExact(start + 1), length)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Video not found"))
+                .content();
+    }
+
+    @Transactional(readOnly = true)
+    public VideoStreamInfo getRenditionStreamInfo(Long videoId, String quality) {
+        return videoRepository.findRenditionStreamInfo(videoId, quality)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Video quality not found"));
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] getRenditionChunk(Long videoId, String quality, long start, int length) {
+        return videoRepository.findRenditionChunk(videoId, quality, Math.toIntExact(start + 1), length)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Video quality not found"))
+                .content();
+    }
+
     @Transactional
     public void saveRendition(Long videoId, String quality, byte[] bytes) {
         videoRepository.saveRendition(videoId, quality, bytes);
@@ -98,6 +128,35 @@ public class VideoService {
     @Transactional
     public void setProcessingStatus(Long videoId, String status) {
         videoRepository.findById(videoId).ifPresent(video -> video.setProcessingStatus(status));
+    }
+
+    // Serves one bounded byte range per request so the browser can start playing and seek without downloading the whole file
+    public ResponseEntity<byte[]> streamRange(VideoStreamInfo info, String rangeHeader, BiFunction<Long, Integer, byte[]> readChunk) {
+        long total = info.length();
+        MediaType contentType = MediaType.parseMediaType(info.contentType());
+        if (rangeHeader == null || rangeHeader.isBlank()) {
+            return ResponseEntity.ok().contentType(contentType).header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                    .body(readChunk.apply(0L, Math.toIntExact(total)));
+        }
+
+        long start;
+        long end;
+        try {
+            List<HttpRange> ranges = HttpRange.parseRanges(rangeHeader);
+            if (ranges.isEmpty()) throw new IllegalArgumentException("Empty range");
+            start = ranges.getFirst().getRangeStart(total);
+            if (start >= total) throw new IllegalArgumentException("Range starts past end of video");
+            end = Math.min(ranges.getFirst().getRangeEnd(total), start + MAX_CHUNK_BYTES - 1);
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                    .header(HttpHeaders.CONTENT_RANGE, "bytes */" + total).build();
+        }
+
+        byte[] chunk = readChunk.apply(start, Math.toIntExact(end - start + 1));
+        return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT).contentType(contentType)
+                .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                .header(HttpHeaders.CONTENT_RANGE, "bytes " + start + "-" + end + "/" + total)
+                .body(chunk);
     }
 
 }
