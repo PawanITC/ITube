@@ -42,7 +42,10 @@ services:
   # The webhook signing secret it prints must go into STRIPE_WEBHOOK_SECRET in backend/.env.
   stripe-cli:
     image: stripe/stripe-cli:latest
-    command: listen --forward-to host.docker.internal:8080/api/webhooks/stripe
+    # Current Stripe CLI versions require the event list; these are the events the backend handles
+    command: >-
+      listen --forward-to host.docker.internal:8080/api/webhooks/stripe
+      --events checkout.session.completed,checkout.session.async_payment_succeeded,checkout.session.async_payment_failed,checkout.session.expired,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,customer.subscription.paused,customer.subscription.resumed,invoice.paid,invoice.payment_failed,charge.refunded,charge.dispute.created,charge.dispute.updated,charge.dispute.closed,radar.early_fraud_warning.created
     environment:
       STRIPE_API_KEY: ${STRIPE_SECRET_KEY:-}
     extra_hosts: ["host.docker.internal:host-gateway"]

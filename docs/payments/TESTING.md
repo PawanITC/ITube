@@ -30,8 +30,10 @@ Install the [Stripe CLI](https://docs.stripe.com/stripe-cli), then:
 
 ```bash
 stripe login                       # once
-stripe listen --forward-to localhost:8080/api/webhooks/stripe
+stripe listen --forward-to localhost:8080/api/webhooks/stripe \n  --events checkout.session.completed,checkout.session.async_payment_succeeded,checkout.session.async_payment_failed,checkout.session.expired,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,customer.subscription.paused,customer.subscription.resumed,invoice.paid,invoice.payment_failed,charge.refunded,charge.dispute.created,charge.dispute.updated,charge.dispute.closed,radar.early_fraud_warning.created
 ```
+
+Current CLI versions refuse to start without `--events`. The list above is exactly the events the backend handles.
 
 `stripe listen` prints a `whsec_…` secret. Put it in `STRIPE_WEBHOOK_SECRET` and restart the backend. Leave `stripe listen` running while you test. Without it no webhooks arrive, and memberships stay "confirming" forever. **That is by design: the app never grants access from the Checkout redirect alone.**
 
