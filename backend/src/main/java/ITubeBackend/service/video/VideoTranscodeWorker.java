@@ -11,10 +11,13 @@ import java.nio.file.Path;
 @Service
 public class VideoTranscodeWorker {
     private final VideoService videoService;
+    private final VideoRenditionPublisher renditionPublisher;
     private final String ffmpegPath;
 
-    public VideoTranscodeWorker(VideoService videoService, @Value("${itube.video.ffmpeg-path}") String ffmpegPath) {
+    public VideoTranscodeWorker(VideoService videoService, VideoRenditionPublisher renditionPublisher,
+                                @Value("${itube.video.ffmpeg-path}") String ffmpegPath) {
         this.videoService = videoService;
+        this.renditionPublisher = renditionPublisher;
         this.ffmpegPath = ffmpegPath;
     }
 
@@ -34,7 +37,7 @@ public class VideoTranscodeWorker {
                     process.destroyForcibly();
                     throw new IllegalStateException("FFmpeg failed to create " + height + "p rendition for video " + videoId);
                 }
-                videoService.saveRendition(videoId, height + "p", Files.readAllBytes(output));
+                renditionPublisher.publish(videoId, height + "p", Files.readAllBytes(output));
             }
             videoService.setProcessingStatus(videoId, "READY");
         } catch (Exception exception) {
