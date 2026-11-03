@@ -1,0 +1,11 @@
+# Keep the build context small; dependencies are installed inside the image with npm ci
+node_modules/
+build/
+coverage/
+.env
+.env.*
+*.log
+.vscode/
+.idea/
+Dockerfile
+.dockerignore
