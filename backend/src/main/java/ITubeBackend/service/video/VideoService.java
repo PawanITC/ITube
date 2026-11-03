@@ -14,7 +14,8 @@ import ITubeBackend.repository.ChannelRepository;
 import ITubeBackend.repository.VideoRepository;
 import ITubeBackend.service.entitlement.EntitlementService;
 import ITubeBackend.service.entitlement.PlaybackTokenService;
-import org.springframework.http.HttpStatus;
+import org.jspecify.annotations.NonNull;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.context.ApplicationEventPublisher;
@@ -59,6 +60,13 @@ public class VideoService {
         ChannelEntity channel = channelRepository.findById(createVideo.channelId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Channel not found"));
 
+        VideoEntity video = createVideoEntity(createVideo, visibility, channel);
+        Long videoId = videoRepository.save(video).getVideoId();
+        eventPublisher.publishEvent(new VideoUploadedEvent(videoId));
+        return videoId;
+    }
+
+    private static @NonNull VideoEntity createVideoEntity(CreateVideo createVideo, VideoVisibility visibility, ChannelEntity channel) {
         VideoEntity video = new VideoEntity();
         video.setVisibility(visibility);
         video.setRequiredTierLevel(visibility == VideoVisibility.MEMBERS_ONLY ? createVideo.requiredTierLevel() : null);
@@ -70,9 +78,7 @@ public class VideoService {
         video.setTitle(createVideo.title().trim());
         video.setDuration(createVideo.duration());
         video.setProcessingStatus("PROCESSING");
-        Long videoId = videoRepository.save(video).getVideoId();
-        eventPublisher.publishEvent(new VideoUploadedEvent(videoId));
-        return videoId;
+        return video;
     }
 
     /** Checks entitlement on the server and, if allowed, issues a short-lived playback token. */
@@ -211,11 +217,12 @@ public class VideoService {
     }
 
     // Serves one bounded byte range per request so the browser can start playing and seek without downloading the whole file
-    public ResponseEntity<byte[]> streamRange(VideoStreamInfo info, String rangeHeader, BiFunction<Long, Integer, byte[]> readChunk) {
+    public ResponseEntity<byte[]> streamRange(VideoStreamInfo info, String rangeHeader, boolean openToEveryone,
+                                              BiFunction<Long, Integer, byte[]> readChunk) {
         long total = info.length();
         MediaType contentType = MediaType.parseMediaType(info.contentType());
         if (rangeHeader == null || rangeHeader.isBlank()) {
-            return ResponseEntity.ok().contentType(contentType).header(HttpHeaders.ACCEPT_RANGES, "bytes")
+            return mediaResponse(HttpStatus.OK, openToEveryone).contentType(contentType).header(HttpHeaders.ACCEPT_RANGES, "bytes")
                     .body(readChunk.apply(0L, Math.toIntExact(total)));
         }
 
@@ -233,10 +240,16 @@ public class VideoService {
         }
 
         byte[] chunk = readChunk.apply(start, Math.toIntExact(end - start + 1));
-        return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT).contentType(contentType)
+        return mediaResponse(HttpStatus.PARTIAL_CONTENT, openToEveryone).contentType(contentType)
                 .header(HttpHeaders.ACCEPT_RANGES, "bytes")
                 .header(HttpHeaders.CONTENT_RANGE, "bytes " + start + "-" + end + "/" + total)
                 .body(chunk);
+    }
+
+    // Paid or private media must never be stored by shared caches
+    private static ResponseEntity.BodyBuilder mediaResponse(HttpStatus status, boolean openToEveryone) {
+        ResponseEntity.BodyBuilder builder = ResponseEntity.status(status);
+        return openToEveryone ? builder : builder.cacheControl(CacheControl.noStore().cachePrivate());
     }
 
 }
