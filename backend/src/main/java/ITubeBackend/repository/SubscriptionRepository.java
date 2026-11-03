@@ -2,7 +2,7 @@ package ITubeBackend.repository;
 
 import ITubeBackend.entities.SubscriptionEntity;
 import ITubeBackend.entities.SubscriptionId;
-import ITubeBackend.dto.SubscriptionDto;
+import ITubeBackend.dto.subscribtions.SubscriptionDto;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;

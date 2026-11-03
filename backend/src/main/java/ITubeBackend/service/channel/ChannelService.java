@@ -1,6 +1,6 @@
 package ITubeBackend.service.channel;
 
-import ITubeBackend.dto.ChannelDetailsDto;
+import ITubeBackend.dto.channel.ChannelDetailsDto;
 import ITubeBackend.entities.ChannelEntity;
 import ITubeBackend.repository.ChannelRepository;
 import ITubeBackend.repository.SubscriptionRepository;
@@ -28,12 +28,12 @@ public class ChannelService {
         ChannelEntity channel = channelRepository.findById(channelId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Channel not found"));
         Long ownerUserId = channelRepository.findOwnerUserIdByChannelId(channelId).orElseThrow();
-        boolean owner = currentUserId != null && ownerUserId.equals(currentUserId);
+        boolean owner = ownerUserId.equals(currentUserId);
         boolean subscribed = currentUserId != null
                 && subscriptionRepository.existsByUserIdAndChannelId(currentUserId, channelId);
 
         return new ChannelDetailsDto(channelId, channel.getChannelName(),
                 subscriptionRepository.countByChannelId(channelId), subscribed, owner,
-                videoRepository.findVideoSummariesByChannelId(channelId));
+                videoRepository.findVideoSummariesByChannelId(channelId, owner));
     }
 }

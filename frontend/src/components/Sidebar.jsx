@@ -8,7 +8,7 @@ function NavLink({ icon, children, active = false }) {
   return <a href={`#${children.toLowerCase().replaceAll(' ', '-')}`} className={`nav-link${active ? ' active' : ''}`}><Icon name={icon} size={22} /><span>{children}</span></a>;
 }
 
-export default function Sidebar({ session, onSelectChannel }) {
+export default function Sidebar({ session, onSelectChannel, onOpenMemberships }) {
   const [subscriptions, setSubscriptions] = useState([]);
   const [loadingSubscriptions, setLoadingSubscriptions] = useState(true);
 
@@ -27,7 +27,7 @@ export default function Sidebar({ session, onSelectChannel }) {
     <aside className="sidebar">
       <nav>
         <div className="nav-group">{primary.map(([icon, label], index) => <NavLink key={label} icon={icon} active={index === 0}>{label}</NavLink>)}</div>
-        <div className="nav-group library-group"><div className="nav-heading">You <span>›</span></div>{library.map(([icon, label]) => <NavLink key={label} icon={icon}>{label}</NavLink>)}</div>
+        <div className="nav-group library-group"><div className="nav-heading">You <span>›</span></div>{library.map(([icon, label]) => <NavLink key={label} icon={icon}>{label}</NavLink>)}<a href="/memberships" className="nav-link" onClick={event => { event.preventDefault(); onOpenMemberships?.(); }}><Icon name="liked" size={22} /><span>Memberships</span></a></div>
         <div className="nav-group subscriptions-group">
           <h3>Subscriptions</h3>
           {loadingSubscriptions && <p className="sidebar-subscription-message">Loading…</p>}

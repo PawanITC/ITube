@@ -1,7 +1,8 @@
 package ITubeBackend.controller;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import ITubeBackend.dto.accounts.DevSessionDto;
-import ITubeBackend.dto.ChannelDto;
+import ITubeBackend.dto.channel.ChannelDto;
 import ITubeBackend.repository.ChannelRepository;
 import ITubeBackend.service.account.AccountService;
 import ITubeBackend.service.video.VideoService;
@@ -15,6 +16,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.Map;
 
+@Tag(name = "Dev session", description = "Temporary sign-in until login is finished")
 @RestController
 public class DevSessionController {
     private final ChannelRepository channelRepository;

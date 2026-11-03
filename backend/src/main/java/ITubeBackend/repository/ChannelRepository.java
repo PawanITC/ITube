@@ -1,8 +1,8 @@
 package ITubeBackend.repository;
 
 import ITubeBackend.entities.ChannelEntity;
-import ITubeBackend.dto.ChannelDto;
-import ITubeBackend.dto.ChannelSearchDto;
+import ITubeBackend.dto.channel.ChannelDto;
+import ITubeBackend.dto.channel.ChannelSearchDto;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -20,7 +20,7 @@ public interface ChannelRepository extends JpaRepository<ChannelEntity, Long> {
             nativeQuery = true)
     List<ChannelDto> findDtosByUserId(@Param("userId") Long userId);
 
-    @Query("select new ITubeBackend.dto.ChannelSearchDto(c.channelId, c.channelName) " +
+    @Query("select new ITubeBackend.dto.channel.ChannelSearchDto(c.channelId, c.channelName) " +
             "from ChannelEntity c where lower(c.channelName) like lower(concat('%', :query, '%')) " +
             "and (:currentUserId is null or c.user.userId <> :currentUserId) " +
             "order by c.channelName")

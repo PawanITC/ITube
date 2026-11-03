@@ -1,6 +1,6 @@
 package ITubeBackend.service.account;
 
-import ITubeBackend.dto.ChannelDto;
+import ITubeBackend.dto.channel.ChannelDto;
 import ITubeBackend.dto.accounts.AccountDto;
 import ITubeBackend.dto.accounts.DevSessionDto;
 import ITubeBackend.entities.AccountEntity;

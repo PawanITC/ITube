@@ -13,8 +13,6 @@ CREATE TABLE IF NOT EXISTS channel (
     channel_name VARCHAR(255) NOT NULL
 );
 
-
--- DISCUSS WITH ZAK
 CREATE TABLE IF NOT EXISTS subscriptions (
     user_id BIGINT NOT NULL REFERENCES accounts (user_id) ON DELETE CASCADE,
     channel_id BIGINT NOT NULL REFERENCES channel (channel_id) ON DELETE CASCADE,
@@ -29,7 +27,16 @@ CREATE TABLE IF NOT EXISTS video (
     thumbnail BYTEA,
     thumbnail_content_type VARCHAR(100),
     title VARCHAR(255) NOT NULL,
-    duration TIME NOT NULL
+    duration TIME NOT NULL,
+    processing_status VARCHAR(20) NOT NULL DEFAULT 'PROCESSING'
+);
+
+CREATE TABLE IF NOT EXISTS video_rendition (
+    video_id BIGINT NOT NULL REFERENCES video (video_id) ON DELETE CASCADE,
+    quality VARCHAR(20) NOT NULL,
+    content_type VARCHAR(100) NOT NULL DEFAULT 'video/mp4',
+    content BYTEA NOT NULL,
+    PRIMARY KEY (video_id, quality)
 );
 
 CREATE TABLE IF NOT EXISTS video_comment (
