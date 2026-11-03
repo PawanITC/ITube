@@ -2,6 +2,8 @@ package ITubeBackend.entities;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -45,6 +47,13 @@ public class VideoEntity {
     @Column(name = "processing_status", nullable = false, length = 20)
     private String processingStatus = "PROCESSING";
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "visibility", nullable = false, length = 20)
+    private VideoVisibility visibility = VideoVisibility.PUBLIC;
+
+    @Column(name = "required_tier_level")
+    private Integer requiredTierLevel;
+
     public VideoEntity() {
     }
 
@@ -56,6 +65,8 @@ public class VideoEntity {
     public void setTitle(String title) { this.title = title; }
     public void setDuration(LocalTime duration) { this.duration = duration; }
     public void setProcessingStatus(String processingStatus) { this.processingStatus = processingStatus; }
+    public void setVisibility(VideoVisibility visibility) { this.visibility = visibility; }
+    public void setRequiredTierLevel(Integer requiredTierLevel) { this.requiredTierLevel = requiredTierLevel; }
 
     public Long getVideoId() { return videoId; }
     public byte[] getVideo() { return video; }
@@ -66,4 +77,6 @@ public class VideoEntity {
     public LocalTime getDuration() { return duration; }
     public ChannelEntity getChannel() { return channel; }
     public String getProcessingStatus() { return processingStatus; }
+    public VideoVisibility getVisibility() { return visibility; }
+    public Integer getRequiredTierLevel() { return requiredTierLevel; }
 }
