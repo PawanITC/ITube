@@ -1,4 +1,4 @@
-# Local infrastructure for payments development, as an alternative to tf_docker/ (Terraform).
+# Local infrastructure for development, as an alternative to tf_docker/ (Terraform).
 # Uses the same ports and credentials the backend expects by default.
 #
 #   docker compose --env-file backend/.env -f docs/payments/docker-compose.example.yml up -d
@@ -37,6 +37,12 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_MESSAGE_MAX_BYTES: 104857600
+
+  # Receives the backend's logs, traces and metrics (OTLP on 4318), same as tf_docker/main.tf.
+  # Without it the backend logs a connection error every 10 seconds. Grafana UI: http://localhost:3080
+  grafana-lgtm:
+    image: grafana/otel-lgtm:latest
+    ports: ["3080:3000", "4317:4317", "4318:4318"]
 
   # Optional: comment out if you run `stripe listen` directly on your machine instead.
   # The webhook signing secret it prints must go into STRIPE_WEBHOOK_SECRET in backend/.env.
