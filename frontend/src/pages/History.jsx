@@ -6,7 +6,7 @@ import './History.css';
 const PAGE_SIZE = 20;
 const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
-export default function History() {
+export default function History({ onHome }) {
   const [entries, setEntries] = useState([]);
   const [page, setPage] = useState(0);
   const [revision, setRevision] = useState(0);
@@ -93,7 +93,7 @@ export default function History() {
 
     <p className="history-notice" role="status">{notice}</p>
     {error && <div className="history-error" role="alert"><p>{error}</p><button className="history-button" disabled={disabled} onClick={() => setRevision(value => value + 1)}>Retry</button></div>}
-    {loading ? <p className="history-loading" role="status">Loading your history…</p> : !error && entries.length === 0 ? <div className="history-empty"><Icon name="history" size={52} /><h2>Your story starts here</h2><p>Videos you watch will appear here.</p><a className="history-button" href="#home">Explore videos</a></div> : <div aria-busy={busy}>
+    {loading ? <p className="history-loading" role="status">Loading your history…</p> : !error && entries.length === 0 ? <div className="history-empty"><Icon name="history" size={52} /><h2>Your story starts here</h2><p>Videos you watch will appear here.</p><a className="history-button" href="/" onClick={onHome ? event => { event.preventDefault(); onHome(); } : undefined}>Explore videos</a></div> : <div aria-busy={busy}>
       {!error && <><div className="history-list-label"><h2>Recently watched</h2><span>Newest first</span></div><ul className="history-list">
         {entries.map(entry => <li className="history-entry" key={entry.id}>
           <div className="history-thumbnail" aria-hidden="true"><Icon name="play" size={32} /></div>

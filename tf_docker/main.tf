@@ -19,9 +19,10 @@ resource "docker_image" "postgres" {
   keep_locally = true
 }
 
-resource "docker_volume" "postgres_data" {
-  name = "itube-postgres-data"
-}
+# IN MAKEFILE I'M CREATING A VOLUME ---- TO INSTALL MAKE FILE USE THE CMD IN ADMIN MODE 'choco install makefile'
+# resource "docker_volume" "postgres_data" {
+#   name = "itube-postgres-data"
+# }
 
 resource "docker_network" "database" {
   name = "itube-database"
@@ -43,7 +44,7 @@ resource "docker_container" "postgres" {
   }
 
   volumes {
-    volume_name    = docker_volume.postgres_data.name
+    volume_name    = "postgres_data"
     container_path = "/var/lib/postgresql/data"
   }
 
@@ -63,7 +64,7 @@ resource "docker_container" "pgadmin" {
 
   env = [
     "PGADMIN_DEFAULT_EMAIL=admin@example.com",
-    "PGADMIN_DEFAULT_PASSWORD=itube-admin-password",
+    "PGADMIN_DEFAULT_PASSWORD=password",
   ]
 
   ports {
@@ -79,4 +80,86 @@ resource "docker_container" "pgadmin" {
 output "postgres_connection" {
   value     = "postgresql://itube:itube-dev-password@localhost:5432/itube"
   sensitive = true
+}
+
+resource "docker_image" "grafana_lgtm" {
+  name         = "grafana/otel-lgtm:latest"
+  keep_locally = true
+}
+
+resource "docker_container" "grafana_lgtm" {
+  name  = "grafana-lgtm"
+  image = docker_image.grafana_lgtm.image_id
+
+  ports {
+    internal = 3000
+    external = 3080
+  }
+
+  ports {
+    internal = 4317
+    external = 4317
+  }
+
+  ports {
+    internal = 4318
+    external = 4318
+  }
+}
+
+resource "docker_image" "redis" {
+  name         = "redis:7-alpine"
+  keep_locally = true
+}
+
+resource "docker_container" "redis" {
+  name  = "itube-redis"
+  image = docker_image.redis.image_id
+
+  ports {
+    internal = 6379
+    external = 6379
+  }
+}
+
+resource "docker_image" "kafka" {
+  name         = "apache/kafka:4.0.0"
+  keep_locally = true
+}
+
+resource "docker_container" "kafka" {
+  image = docker_image.kafka.image_id
+  name  = "itube-kafka"
+
+  env = [
+    "KAFKA_NODE_ID=1",
+    "KAFKA_PROCESS_ROLES=broker,controller",
+    "KAFKA_LISTENERS=PLAINTEXT://:9092,INTERNAL://:29092,CONTROLLER://:9093",
+    "KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092,INTERNAL://itube-kafka:29092",
+    "KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER",
+    "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT",
+    "KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093",
+    "KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1",
+    "KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1",
+    "KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1",
+    "KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0",
+    "KAFKA_NUM_PARTITIONS=3",
+    "KAFKA_LOG_DIRS=/var/lib/kafka/data",
+    # Renditions go through Kafka to the sink connector, so allow messages up to 100MB
+    "KAFKA_MESSAGE_MAX_BYTES=104857600",
+  ]
+
+  volumes {
+    volume_name    = "kafka_data"
+    container_path = "/var/lib/kafka/data"
+  }
+
+  ports {
+    internal = 9092
+    external = 9092
+  }
+
+  networks_advanced {
+    name = docker_network.database.name
+  }
 }

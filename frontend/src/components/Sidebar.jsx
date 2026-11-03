@@ -1,26 +1,46 @@
-﻿import Icon from './Icon';
+import { useEffect, useState } from 'react';
+import Icon from './Icon';
 
 const primary = [['home', 'Home'], ['shorts', 'Shorts'], ['subscriptions', 'Subscriptions']];
 const library = [['history', 'History'], ['playlist', 'Playlists'], ['later', 'Watch later'], ['liked', 'Liked videos']];
-const channels = [['N', 'Northbound', '#476b57'], ['M', 'Maya Makes', '#d66b58'], ['C', 'Curious Planet', '#3194a2'], ['O', 'Olive & Thyme', '#648052']];
 
-function NavLink({ icon, children, active = false }) {
-  return <a href={`#${children.toLowerCase().replaceAll(' ', '-')}`} aria-current={active ? 'page' : undefined} aria-label={children} className={`nav-link${active ? ' active' : ''}`}><Icon name={icon} size={22} /><span>{children}</span></a>;
+function NavLink({ icon, children, active = false, onNavigate }) {
+  return <a href={`#${children.toLowerCase().replaceAll(' ', '-')}`} onClick={onNavigate ? event => { event.preventDefault(); onNavigate(); } : undefined} aria-current={active ? 'page' : undefined} aria-label={children} className={`nav-link${active ? ' active' : ''}`}><Icon name={icon} size={22} /><span>{children}</span></a>;
 }
 
-export default function Sidebar({ activePage = 'Home' }) {
-  return <aside className="sidebar">
-    <nav>
-      <div className="nav-group">{primary.map(([icon, label]) => <NavLink key={label} icon={icon} active={label === activePage}>{label}</NavLink>)}</div>
-      <div className="nav-group library-group">
-        <div className="nav-heading">You <span>&rsaquo;</span></div>
-        {library.map(([icon, label]) => <NavLink key={label} icon={icon} active={label === activePage}>{label}</NavLink>)}
-      </div>
-      <div className="nav-group subscriptions-group">
-        <h3>Subscriptions</h3>
-        {channels.map(([letter, name, color]) => <a href="#subscriptions" className="channel-link" key={name}><span className="mini-avatar" style={{ background: color }}>{letter}</span><span>{name}</span><i /></a>)}
-      </div>
-    </nav>
-    <footer>About&nbsp; Press&nbsp; Copyright<br />Contact us&nbsp; Creators<br /><br />Terms&nbsp; Privacy&nbsp; Policy &amp; Safety<br />&copy; 2026 Google LLC</footer>
-  </aside>;
+export default function Sidebar({ session, onSelectChannel, onOpenMemberships, activePage = 'Home', onOpenHistory, onHome }) {
+  const [subscriptions, setSubscriptions] = useState([]);
+  const [loadingSubscriptions, setLoadingSubscriptions] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingSubscriptions(true);
+    fetch('/api/channels/subscriptions', { credentials: 'include' })
+      .then(response => response.ok ? response.json() : [])
+      .then(items => { if (!cancelled) setSubscriptions(items); })
+      .catch(() => { if (!cancelled) setSubscriptions([]); })
+      .finally(() => { if (!cancelled) setLoadingSubscriptions(false); });
+    return () => { cancelled = true; };
+  }, [session?.userId]);
+
+  return (
+    <aside className="sidebar">
+      <nav>
+        <div className="nav-group">{primary.map(([icon, label]) => <NavLink key={label} icon={icon} active={label === activePage} onNavigate={label === 'Home' ? onHome : undefined}>{label}</NavLink>)}</div>
+        <div className="nav-group library-group"><div className="nav-heading">You <span>›</span></div>{library.map(([icon, label]) => <NavLink key={label} icon={icon} active={label === activePage} onNavigate={label === 'History' ? onOpenHistory : undefined}>{label}</NavLink>)}<a href="/memberships" className="nav-link" onClick={event => { event.preventDefault(); onOpenMemberships?.(); }}><Icon name="liked" size={22} /><span>Memberships</span></a></div>
+        <div className="nav-group subscriptions-group">
+          <h3>Subscriptions</h3>
+          {loadingSubscriptions && <p className="sidebar-subscription-message">Loading…</p>}
+          {!loadingSubscriptions && subscriptions.length === 0 && <p className="sidebar-subscription-message">No subscriptions yet</p>}
+          {!loadingSubscriptions && subscriptions.map(channel => (
+            <a href={`/channel/${channel.channelId}`} className="channel-link" key={channel.channelId} onClick={event => { event.preventDefault(); onSelectChannel(channel.channelId); }}>
+              <span className="mini-avatar">{channel.channelName.trim().slice(0, 1).toUpperCase() || '?'}</span>
+              <span>{channel.channelName}</span>
+            </a>
+          ))}
+        </div>
+      </nav>
+      <footer>About&nbsp; Press&nbsp; Copyright<br />Contact us&nbsp; Creators<br /><br />Terms&nbsp; Privacy&nbsp; Policy &amp; Safety<br />© 2026 Google LLC</footer>
+    </aside>
+  );
 }

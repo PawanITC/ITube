@@ -5,8 +5,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.beans.factory.annotation.Autowired;
-import History.HistoryRepository;
-import History.WatchHistory;
+import ITubeBackend.repository.HistoryRepository;
+import ITubeBackend.entities.WatchHistory;
 
 import java.net.URI;
 import java.net.http.HttpClient;

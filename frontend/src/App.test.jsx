@@ -1,6 +1,11 @@
 import { act, render, screen } from '@testing-library/react';
-import { vi } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 import App from './App';
+
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => [] }));
+});
+afterEach(() => vi.unstubAllGlobals());
 
 test('renders the video feed', () => {
   render(<App />);

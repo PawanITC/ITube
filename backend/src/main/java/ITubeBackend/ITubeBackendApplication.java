@@ -2,14 +2,12 @@ package ITubeBackend;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.persistence.autoconfigure.EntityScan;
-import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
-import History.WatchHistory;
-import History.HistoryRepository;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
-@SpringBootApplication(scanBasePackages = {"ITubeBackend", "History"})
-@EntityScan(basePackageClasses = WatchHistory.class)
-@EnableJpaRepositories(basePackageClasses = HistoryRepository.class)
+@SpringBootApplication
+@ConfigurationPropertiesScan
+@EnableScheduling
 public class ITubeBackendApplication {
 
 	public static void main(String[] args) {

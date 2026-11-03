@@ -1,28 +1,155 @@
 import { useEffect, useMemo, useState } from 'react';
-import History from './pages/History';
 import Header from './components/Header';
+import History from './pages/History';
 import Sidebar from './components/Sidebar';
-import CategoryBar from './components/CategoryBar';
-import VideoGrid from './components/VideoGrid';
-import videos from './data/videos';
+import VideoGrid from './components/Video/VideoGrid';
+import UploadVideoPage from './components/Video/UploadVideoPage';
+import WatchPage from './components/Video/WatchPage';
+import ChannelGrid from './components/Channel/ChannelGrid';
+import ChannelPage from './components/Channel/ChannelPage';
+import MembershipsPage from './components/Membership/MembershipsPage';
+import CheckoutCompletePage from './components/Membership/CheckoutCompletePage';
 import './App.css';
 
+function readRoute() {
+  if (window.location.pathname === '/history' || window.location.hash === '#history') return { page: 'history' };
+  const watchMatch = window.location.pathname.match(/^\/watch\/(\d+)$/);
+  if (watchMatch) return { page: 'watch', videoId: Number(watchMatch[1]) };
+  const channelMatch = window.location.pathname.match(/^\/channel\/(\d+)$/);
+  if (channelMatch) return { page: 'channel', channelId: Number(channelMatch[1]) };
+  if (window.location.pathname === '/upload') return { page: 'upload', videoId: null };
+  if (window.location.pathname === '/memberships') return { page: 'memberships' };
+  if (window.location.pathname === '/memberships/checkout-complete') return { page: 'checkout-complete' };
+  return { page: 'home', videoId: null };
+}
+
 function App() {
-  const [route, setRoute] = useState(() => window.location.hash || '#home');
-  useEffect(() => {
-    const navigate = () => setRoute(window.location.hash || '#home');
-    window.addEventListener('hashchange', navigate);
-    return () => window.removeEventListener('hashchange', navigate);
-  }, []);
-  const isHistory = route === '#history';
-  const [category, setCategory] = useState('All');
+  const [route, setRoute] = useState(readRoute);
+  const [uploadSession, setUploadSession] = useState(null);
+  const [activeSession, setActiveSession] = useState(null);
   const [search, setSearch] = useState('');
+  const [videos, setVideos] = useState([]);
+  const [videosLoading, setVideosLoading] = useState(true);
+  const [videosError, setVideosError] = useState('');
+  const [searchMode, setSearchMode] = useState('videos');
+  const [channelResults, setChannelResults] = useState([]);
+  const [channelsLoading, setChannelsLoading] = useState(false);
+  const [channelsError, setChannelsError] = useState('');
+
+  useEffect(() => {
+    if (route.page === 'upload' || route.page === 'history') return;
+    let cancelled = false;
+    setVideosLoading(true);
+    fetch('/api/videos')
+      .then(response => {
+        if (!response.ok) throw new Error('Could not load videos from the server.');
+        return response.json();
+      })
+      .then(databaseVideos => {
+        if (!cancelled) {
+          setVideos(databaseVideos);
+          setVideosError('');
+        }
+      })
+      .catch(error => {
+        if (!cancelled) setVideosError(error.message || 'Could not load videos from the server.');
+      })
+      .finally(() => {
+        if (!cancelled) setVideosLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [route.page]);
+
   const visibleVideos = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    return videos.filter(video => !needle || `${video.title} ${video.channel}`.toLowerCase().includes(needle));
-  }, [search]);
+    return videos.filter(video => !needle || `${video.title} ${video.channelName}`.toLowerCase().includes(needle));
+  }, [search, videos]);
 
-  return <div className="app-shell"><Header onSearch={value => { setSearch(value); window.location.hash = 'home'; }} /><Sidebar activePage={isHistory ? 'History' : 'Home'} /><main className="main-content"><nav className="mobile-library-nav" aria-label="Mobile library"><a href="#home" aria-current={!isHistory ? 'page' : undefined}>Home</a><a href="#history" aria-current={isHistory ? 'page' : undefined}>History</a></nav>{isHistory ? <History /> : <><CategoryBar selected={category} onSelect={setCategory} /><div className="feed-content"><VideoGrid videos={visibleVideos} /></div></>}</main></div>;
+  async function handleSearch(query, type) {
+    setSearch(query);
+    setSearchMode(type);
+    setChannelsError('');
+    if (route.page !== 'home') {
+      window.history.pushState({}, '', '/');
+      setRoute({ page: 'home', videoId: null });
+    }
+    if (type === 'channels') {
+      setChannelsLoading(true);
+      try {
+        const params = new URLSearchParams({ q: query });
+        const response = await fetch(`/api/channels/search?${params}`);
+        if (!response.ok) throw new Error('Could not search channels.');
+        setChannelResults(await response.json());
+      } catch (error) {
+        setChannelsError(error.message || 'Could not search channels.');
+        setChannelResults([]);
+      } finally {
+        setChannelsLoading(false);
+      }
+    }
+  }
+
+  useEffect(() => {
+    function syncPageFromLocation() {
+      setRoute(readRoute());
+    }
+    window.addEventListener('popstate', syncPageFromLocation);
+    window.addEventListener('hashchange', syncPageFromLocation);
+    return () => {
+      window.removeEventListener('popstate', syncPageFromLocation);
+      window.removeEventListener('hashchange', syncPageFromLocation);
+    };
+  }, []);
+
+  function openUploadPage(session) {
+    setUploadSession(session);
+    window.history.pushState({}, '', '/upload');
+    setRoute({ page: 'upload', videoId: null });
+  }
+
+  function returnHome() {
+    window.history.pushState({}, '', '/');
+    setRoute({ page: 'home', videoId: null });
+  }
+
+  function openVideo(videoId) {
+    window.history.pushState({}, '', `/watch/${videoId}`);
+    setRoute({ page: 'watch', videoId });
+  }
+
+  function openHistory() {
+    window.history.pushState({}, '', '/history');
+    setRoute({ page: 'history' });
+  }
+
+  function openMemberships() {
+    window.history.pushState({}, '', '/memberships');
+    setRoute({ page: 'memberships' });
+  }
+
+  function openChannel(channelId) {
+    window.history.pushState({}, '', `/channel/${channelId}`);
+    setRoute({ page: 'channel', channelId });
+  }
+
+  return (
+    <div className="app-shell" id="home">
+      <Header onSearch={handleSearch} onCreatePage={openUploadPage} onSessionStarted={setActiveSession} onSelectChannel={openChannel} />
+      {route.page === 'upload' ? (
+        <main className="upload-main"><UploadVideoPage session={uploadSession} onCancel={returnHome} /></main>
+      ) : route.page === 'watch' ? (
+        <WatchPage videoId={route.videoId} videos={videos} videosLoading={videosLoading} videosError={videosError} session={activeSession} onSelectVideo={openVideo} onSelectChannel={openChannel} onHome={returnHome} onOpenMemberships={openMemberships} />
+      ) : route.page === 'memberships' ? (
+        <MembershipsPage onHome={returnHome} onOpenChannel={openChannel} />
+      ) : route.page === 'checkout-complete' ? (
+        <CheckoutCompletePage onOpenChannel={openChannel} onOpenMemberships={openMemberships} />
+      ) : route.page === 'channel' ? (
+        <ChannelPage channelId={route.channelId} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} onOpenMemberships={openMemberships} />
+      ) : (
+        <><Sidebar activePage={route.page === 'history' ? 'History' : 'Home'} onOpenHistory={openHistory} onHome={returnHome} session={activeSession} onSelectChannel={openChannel} onOpenMemberships={openMemberships} /><main className="main-content"><nav className="mobile-library-nav" aria-label="Mobile library"><a href="/" onClick={event => { event.preventDefault(); returnHome(); }} aria-current={route.page === 'home' ? 'page' : undefined}>Home</a><a href="/history" onClick={event => { event.preventDefault(); openHistory(); }} aria-current={route.page === 'history' ? 'page' : undefined}>History</a></nav>{route.page === 'history' ? <History onHome={returnHome} /> : <div className="feed-content">{searchMode === 'channels' ? <ChannelGrid channels={channelResults} loading={channelsLoading} error={channelsError} query={search} onSelectChannel={openChannel} /> : <VideoGrid videos={visibleVideos} loading={videosLoading} error={videosError} onSelectVideo={openVideo} onSelectChannel={openChannel} />}</div>}</main></>
+      )}
+    </div>
+  );
 }
 
 export default App;
