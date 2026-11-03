@@ -12,6 +12,8 @@ import java.time.Duration;
 public record PaymentProperties(
         String frontendBaseUrl,
         String currency,
+        // Stripe product tax code for membership tiers; required when Managed Payments or Stripe Tax is on
+        String membershipTaxCode,
         int platformFeeBps,
         boolean allowLiveMode,
         Memberships memberships,

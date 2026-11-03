@@ -25,10 +25,11 @@ public interface StripeApi {
 
     String createBillingPortalSession(String customerId, String returnUrl) throws StripeException;
 
-    String createProduct(String name, String description, Map<String, String> metadata, String idempotencyKey)
-            throws StripeException;
+    String createProduct(String name, String description, String taxCode, Map<String, String> metadata,
+                         String idempotencyKey) throws StripeException;
 
-    void updateProduct(String productId, String name, String description, boolean active) throws StripeException;
+    void updateProduct(String productId, String name, String description, String taxCode, boolean active)
+            throws StripeException;
 
     String createMonthlyPrice(String productId, long amountMinor, String currency, String idempotencyKey)
             throws StripeException;

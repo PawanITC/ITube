@@ -89,6 +89,7 @@ public class MembershipTierService {
         // If this transaction then rolls back, the orphaned test Product is harmless and never sold.
         try {
             String productId = stripe.createProduct(productName(channel, tier), tier.getDescription(),
+                    properties.membershipTaxCode(),
                     Map.of("itube_tier_id", tier.getTierId().toString(), "itube_channel_id", channelId.toString()),
                     "tier-product-" + tier.getTierId());
             tier.setStripeProductId(productId);
@@ -111,7 +112,8 @@ public class MembershipTierService {
             if (request.name() != null || request.description() != null) {
                 if (request.name() != null) tier.setName(request.name().trim());
                 if (request.description() != null) tier.setDescription(blankToNull(request.description()));
-                stripe.updateProduct(tier.getStripeProductId(), productName(channel, tier), tier.getDescription(), true);
+                stripe.updateProduct(tier.getStripeProductId(), productName(channel, tier), tier.getDescription(),
+                        properties.membershipTaxCode(), true);
             }
             if (request.priceMinor() != null && !request.priceMinor().equals(tier.getPriceMinor())) {
                 validatePrice(request.priceMinor());
@@ -139,7 +141,8 @@ public class MembershipTierService {
         ChannelEntity channel = channelRepository.findById(tier.getChannelId()).orElseThrow();
         tier.setActive(false);
         try {
-            stripe.updateProduct(tier.getStripeProductId(), productName(channel, tier), tier.getDescription(), false);
+            stripe.updateProduct(tier.getStripeProductId(), productName(channel, tier), tier.getDescription(),
+                    properties.membershipTaxCode(), false);
         } catch (StripeException exception) {
             throw new StripeCallException(exception);
         }

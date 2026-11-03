@@ -93,16 +93,19 @@ public class StripeSdkApi implements StripeApi {
     }
 
     @Override
-    public String createProduct(String name, String description, Map<String, String> metadata, String idempotencyKey)
-            throws StripeException {
+    public String createProduct(String name, String description, String taxCode, Map<String, String> metadata,
+                                String idempotencyKey) throws StripeException {
         ProductCreateParams.Builder params = ProductCreateParams.builder().setName(name).putAllMetadata(metadata);
+        if (taxCode != null && !taxCode.isBlank()) params.setTaxCode(taxCode);
         if (description != null && !description.isBlank()) params.setDescription(description);
         return client().v1().products().create(params.build(), idempotent(idempotencyKey)).getId();
     }
 
     @Override
-    public void updateProduct(String productId, String name, String description, boolean active) throws StripeException {
+    public void updateProduct(String productId, String name, String description, String taxCode, boolean active)
+            throws StripeException {
         ProductUpdateParams.Builder params = ProductUpdateParams.builder().setName(name).setActive(active);
+        if (taxCode != null && !taxCode.isBlank()) params.setTaxCode(taxCode);
         if (description != null && !description.isBlank()) params.setDescription(description);
         client().v1().products().update(productId, params.build());
     }
