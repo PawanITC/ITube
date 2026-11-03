@@ -66,6 +66,18 @@ public class VideoController {
         return videoService.getQualities(videoId);
     }
 
+    @GetMapping("/api/videos/{videoId}/playback-authorisation")
+    public PlaybackAuthorisationDto authorisePlayback(@PathVariable Long videoId, HttpSession session) {
+        return videoService.authorisePlayback(videoId, CurrentUser.find(session).orElse(null));
+    }
+
+    @PatchMapping("/api/videos/{videoId}/visibility")
+    public ResponseEntity<Void> updateVisibility(@PathVariable Long videoId, @Valid @RequestBody UpdateVisibilityRequest request,
+                                                 HttpSession session) {
+        videoService.updateVisibility(videoId, CurrentUser.require(session), request.visibility(), request.requiredTierLevel());
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/api/videos/{videoId}/renditions/{quality}")
     public ResponseEntity<byte[]> getRendition(@PathVariable Long videoId, @PathVariable String quality,
                                                @RequestHeader(value = HttpHeaders.RANGE, required = false) String range) {

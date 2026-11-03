@@ -6,6 +6,8 @@ import UploadVideoPage from './components/Video/UploadVideoPage';
 import WatchPage from './components/Video/WatchPage';
 import ChannelGrid from './components/Channel/ChannelGrid';
 import ChannelPage from './components/Channel/ChannelPage';
+import MembershipsPage from './components/Membership/MembershipsPage';
+import CheckoutCompletePage from './components/Membership/CheckoutCompletePage';
 import './App.css';
 
 function readRoute() {
@@ -14,6 +16,8 @@ function readRoute() {
   const channelMatch = window.location.pathname.match(/^\/channel\/(\d+)$/);
   if (channelMatch) return { page: 'channel', channelId: Number(channelMatch[1]) };
   if (window.location.pathname === '/upload') return { page: 'upload', videoId: null };
+  if (window.location.pathname === '/memberships') return { page: 'memberships' };
+  if (window.location.pathname === '/memberships/checkout-complete') return { page: 'checkout-complete' };
   return { page: 'home', videoId: null };
 }
 
@@ -107,6 +111,11 @@ function App() {
     setRoute({ page: 'watch', videoId });
   }
 
+  function openMemberships() {
+    window.history.pushState({}, '', '/memberships');
+    setRoute({ page: 'memberships' });
+  }
+
   function openChannel(channelId) {
     window.history.pushState({}, '', `/channel/${channelId}`);
     setRoute({ page: 'channel', channelId });
@@ -118,11 +127,15 @@ function App() {
       {route.page === 'upload' ? (
         <main className="upload-main"><UploadVideoPage session={uploadSession} onCancel={returnHome} /></main>
       ) : route.page === 'watch' ? (
-        <WatchPage videoId={route.videoId} videos={videos} videosLoading={videosLoading} videosError={videosError} session={activeSession} onSelectVideo={openVideo} onSelectChannel={openChannel} onHome={returnHome} />
+        <WatchPage videoId={route.videoId} videos={videos} videosLoading={videosLoading} videosError={videosError} session={activeSession} onSelectVideo={openVideo} onSelectChannel={openChannel} onHome={returnHome} onOpenMemberships={openMemberships} />
+      ) : route.page === 'memberships' ? (
+        <MembershipsPage onHome={returnHome} onOpenChannel={openChannel} />
+      ) : route.page === 'checkout-complete' ? (
+        <CheckoutCompletePage onOpenChannel={openChannel} onOpenMemberships={openMemberships} />
       ) : route.page === 'channel' ? (
-        <ChannelPage channelId={route.channelId} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} />
+        <ChannelPage channelId={route.channelId} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} onOpenMemberships={openMemberships} />
       ) : (
-        <><Sidebar session={activeSession} onSelectChannel={openChannel} /><main className="main-content"><div className="feed-content">{searchMode === 'channels' ? <ChannelGrid channels={channelResults} loading={channelsLoading} error={channelsError} query={search} onSelectChannel={openChannel} /> : <VideoGrid videos={visibleVideos} loading={videosLoading} error={videosError} onSelectVideo={openVideo} onSelectChannel={openChannel} />}</div></main></>
+        <><Sidebar session={activeSession} onSelectChannel={openChannel} onOpenMemberships={openMemberships} /><main className="main-content"><div className="feed-content">{searchMode === 'channels' ? <ChannelGrid channels={channelResults} loading={channelsLoading} error={channelsError} query={search} onSelectChannel={openChannel} /> : <VideoGrid videos={visibleVideos} loading={videosLoading} error={videosError} onSelectVideo={openVideo} onSelectChannel={openChannel} />}</div></main></>
       )}
     </div>
   );

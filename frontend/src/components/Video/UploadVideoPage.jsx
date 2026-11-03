@@ -57,6 +57,8 @@ export default function UploadVideoPage({ session, onCancel }) {
   const [thumbnailPreview, setThumbnailPreview] = useState('');
   const [title, setTitle] = useState('');
   const [duration, setDuration] = useState('');
+  const [visibility, setVisibility] = useState('PUBLIC');
+  const [requiredTierLevel, setRequiredTierLevel] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState('');
@@ -139,6 +141,8 @@ export default function UploadVideoPage({ session, onCancel }) {
     form.append('file', file);
     form.append('title', title.trim());
     form.append('duration', duration);
+    form.append('visibility', visibility);
+    if (visibility === 'MEMBERS_ONLY' && requiredTierLevel) form.append('requiredTierLevel', requiredTierLevel);
     if (thumbnail) form.append('thumbnail', thumbnail, thumbnail.name || 'thumbnail.jpg');
 
     setUploading(true);
@@ -205,6 +209,21 @@ export default function UploadVideoPage({ session, onCancel }) {
             <label htmlFor="video-title">Title</label>
             <input id="video-title" type="text" maxLength="255" value={title}
               onChange={event => setTitle(event.target.value)} placeholder="Add a title for your video" required />
+
+            <label htmlFor="video-visibility">Visibility</label>
+            <select id="video-visibility" value={visibility} onChange={event => setVisibility(event.target.value)}>
+              <option value="PUBLIC">Public</option>
+              <option value="UNLISTED">Unlisted (anyone with the link)</option>
+              <option value="PRIVATE">Private (only you)</option>
+              <option value="MEMBERS_ONLY">Members only</option>
+            </select>
+            {visibility === 'MEMBERS_ONLY' && <>
+              <label htmlFor="video-tier">Minimum membership level</label>
+              <select id="video-tier" value={requiredTierLevel} onChange={event => setRequiredTierLevel(event.target.value)}>
+                <option value="">Any paid tier</option>
+                {[1, 2, 3, 4, 5].map(level => <option key={level} value={level}>Level {level} and above</option>)}
+              </select>
+            </>}
 
             {error && <p className="upload-error" role="alert">{error}</p>}
             {success && <p className="upload-success" role="status">{success}</p>}

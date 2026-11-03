@@ -17,4 +17,19 @@ public class KafkaTopicConfig {
     NewTopic videoRenditionTopic(@Value("${itube.video.rendition-topic}") String topic) {
         return TopicBuilder.name(topic).partitions(3).replicas(1).build();
     }
+
+    @Bean
+    NewTopic membershipActivatedTopic(@Value("${itube.memberships.activated-topic}") String topic) {
+        return TopicBuilder.name(topic).partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    NewTopic membershipExpiredTopic(@Value("${itube.memberships.expired-topic}") String topic) {
+        return TopicBuilder.name(topic).partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    NewTopic membershipTierChangedTopic(@Value("${itube.memberships.tier-changed-topic}") String topic) {
+        return TopicBuilder.name(topic).partitions(3).replicas(1).build();
+    }
 }

@@ -34,6 +34,6 @@ public class ChannelService {
 
         return new ChannelDetailsDto(channelId, channel.getChannelName(),
                 subscriptionRepository.countByChannelId(channelId), subscribed, owner,
-                videoRepository.findVideoSummariesByChannelId(channelId));
+                videoRepository.findVideoSummariesByChannelId(channelId, owner));
     }
 }

@@ -1,5 +1,6 @@
 package ITubeBackend.controller;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import ITubeBackend.dto.channel.ChannelDetailsDto;
 import ITubeBackend.dto.channel.ChannelDto;
 import ITubeBackend.dto.channel.ChannelSearchDto;
@@ -21,6 +22,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
+@Tag(name = "Channels", description = "Channel pages, search and free Subscribe (never involves payment)")
 @RestController
 @RequestMapping("/api/channels")
 public class ChannelController {

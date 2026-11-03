@@ -1,5 +1,6 @@
 package ITubeBackend.controller;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import ITubeBackend.dto.comments.CommentDto;
 import ITubeBackend.dto.comments.CreateCommentRequest;
 import ITubeBackend.service.comment.CommentService;
@@ -16,6 +17,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
+@Tag(name = "Comments", description = "Video comments")
 @RestController
 @RequestMapping("/api/videos/{videoId}/comments")
 public class CommentController {
