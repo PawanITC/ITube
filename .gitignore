@@ -97,3 +97,6 @@ terraform.rc
 .env
 .env.*
 !.env.example
+
+### Dev launcher (dev.cmd) ###
+.dev-pids

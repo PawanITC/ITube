@@ -57,6 +57,15 @@ public class DevSessionController {
         return devSession;
     }
 
+    // REMOVE LATER - UNTIL LOGIN IS COMPLETE. Fixed "Demo Viewer" account used by the /demo page.
+    @PostMapping("/api/session/dev/viewer")
+    public DevSessionDto createDevViewerSession(HttpSession session) {
+        DevSessionDto devSession = accountService.createDevViewerSession();
+        session.setAttribute("userId", devSession.userId());
+        session.setAttribute("channelId", devSession.channelId());
+        return devSession;
+    }
+
     @GetMapping("/api/session/current")
     public Map<String, Long> getCurrentSessionDetails(HttpSession session) {
         Long userId = getCurrentSession(session);

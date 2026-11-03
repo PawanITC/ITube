@@ -27,7 +27,7 @@ export default function Sidebar({ session, onSelectChannel, onOpenMemberships, a
     <aside className="sidebar">
       <nav>
         <div className="nav-group">{primary.map(([icon, label]) => <NavLink key={label} icon={icon} active={label === activePage} onNavigate={label === 'Home' ? onHome : undefined}>{label}</NavLink>)}</div>
-        <div className="nav-group library-group"><div className="nav-heading">You <span>›</span></div>{library.map(([icon, label]) => <NavLink key={label} icon={icon} active={label === activePage} onNavigate={label === 'History' ? onOpenHistory : undefined}>{label}</NavLink>)}<a href="/memberships" className="nav-link" onClick={event => { event.preventDefault(); onOpenMemberships?.(); }}><Icon name="liked" size={22} /><span>Memberships</span></a></div>
+        <div className="nav-group library-group"><div className="nav-heading">You <span>›</span></div>{library.map(([icon, label]) => <NavLink key={label} icon={icon} active={label === activePage} onNavigate={label === 'History' ? onOpenHistory : undefined}>{label}</NavLink>)}{import.meta.env.DEV && <a href="/demo" className="nav-link" title="Development only"><Icon name="play" size={22} /><span>Feature showcase</span></a>}<a href="/memberships" className="nav-link" onClick={event => { event.preventDefault(); onOpenMemberships?.(); }}><Icon name="liked" size={22} /><span>Memberships</span></a></div>
         <div className="nav-group subscriptions-group">
           <h3>Subscriptions</h3>
           {loadingSubscriptions && <p className="sidebar-subscription-message">Loading…</p>}

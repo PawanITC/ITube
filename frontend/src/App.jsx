@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import Header from './components/Header';
 import History from './pages/History';
 import Sidebar from './components/Sidebar';
@@ -11,6 +11,10 @@ import MembershipsPage from './components/Membership/MembershipsPage';
 import CheckoutCompletePage from './components/Membership/CheckoutCompletePage';
 import './App.css';
 
+// Development-only showcase page. import.meta.env.DEV is false in production builds, so Vite drops
+// this import and the page is not shipped.
+const Demo = import.meta.env.DEV ? lazy(() => import('./pages/Demo')) : null;
+
 function readRoute() {
   if (window.location.pathname === '/history' || window.location.hash === '#history') return { page: 'history' };
   const watchMatch = window.location.pathname.match(/^\/watch\/(\d+)$/);
@@ -20,6 +24,7 @@ function readRoute() {
   if (window.location.pathname === '/upload') return { page: 'upload', videoId: null };
   if (window.location.pathname === '/memberships') return { page: 'memberships' };
   if (window.location.pathname === '/memberships/checkout-complete') return { page: 'checkout-complete' };
+  if (Demo && window.location.pathname === '/demo') return { page: 'demo' };
   return { page: 'home', videoId: null };
 }
 
@@ -141,6 +146,8 @@ function App() {
         <WatchPage videoId={route.videoId} videos={videos} videosLoading={videosLoading} videosError={videosError} session={activeSession} onSelectVideo={openVideo} onSelectChannel={openChannel} onHome={returnHome} onOpenMemberships={openMemberships} />
       ) : route.page === 'memberships' ? (
         <MembershipsPage onHome={returnHome} onOpenChannel={openChannel} />
+      ) : route.page === 'demo' ? (
+        <Suspense fallback={<main className="demo-page"><p>Loading…</p></main>}><Demo onHome={returnHome} /></Suspense>
       ) : route.page === 'checkout-complete' ? (
         <CheckoutCompletePage onOpenChannel={openChannel} onOpenMemberships={openMemberships} />
       ) : route.page === 'channel' ? (
