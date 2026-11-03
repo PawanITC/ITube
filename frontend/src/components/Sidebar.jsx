@@ -4,11 +4,11 @@ import Icon from './Icon';
 const primary = [['home', 'Home'], ['shorts', 'Shorts'], ['subscriptions', 'Subscriptions']];
 const library = [['history', 'History'], ['playlist', 'Playlists'], ['later', 'Watch later'], ['liked', 'Liked videos']];
 
-function NavLink({ icon, children, active = false }) {
-  return <a href={`#${children.toLowerCase().replaceAll(' ', '-')}`} className={`nav-link${active ? ' active' : ''}`}><Icon name={icon} size={22} /><span>{children}</span></a>;
+function NavLink({ icon, children, active = false, onNavigate }) {
+  return <a href={`#${children.toLowerCase().replaceAll(' ', '-')}`} onClick={onNavigate ? event => { event.preventDefault(); onNavigate(); } : undefined} aria-current={active ? 'page' : undefined} aria-label={children} className={`nav-link${active ? ' active' : ''}`}><Icon name={icon} size={22} /><span>{children}</span></a>;
 }
 
-export default function Sidebar({ session, onSelectChannel, onOpenMemberships }) {
+export default function Sidebar({ session, onSelectChannel, onOpenMemberships, activePage = 'Home', onOpenHistory, onHome }) {
   const [subscriptions, setSubscriptions] = useState([]);
   const [loadingSubscriptions, setLoadingSubscriptions] = useState(true);
 
@@ -26,8 +26,8 @@ export default function Sidebar({ session, onSelectChannel, onOpenMemberships })
   return (
     <aside className="sidebar">
       <nav>
-        <div className="nav-group">{primary.map(([icon, label], index) => <NavLink key={label} icon={icon} active={index === 0}>{label}</NavLink>)}</div>
-        <div className="nav-group library-group"><div className="nav-heading">You <span>›</span></div>{library.map(([icon, label]) => <NavLink key={label} icon={icon}>{label}</NavLink>)}<a href="/memberships" className="nav-link" onClick={event => { event.preventDefault(); onOpenMemberships?.(); }}><Icon name="liked" size={22} /><span>Memberships</span></a></div>
+        <div className="nav-group">{primary.map(([icon, label]) => <NavLink key={label} icon={icon} active={label === activePage} onNavigate={label === 'Home' ? onHome : undefined}>{label}</NavLink>)}</div>
+        <div className="nav-group library-group"><div className="nav-heading">You <span>›</span></div>{library.map(([icon, label]) => <NavLink key={label} icon={icon} active={label === activePage} onNavigate={label === 'History' ? onOpenHistory : undefined}>{label}</NavLink>)}<a href="/memberships" className="nav-link" onClick={event => { event.preventDefault(); onOpenMemberships?.(); }}><Icon name="liked" size={22} /><span>Memberships</span></a></div>
         <div className="nav-group subscriptions-group">
           <h3>Subscriptions</h3>
           {loadingSubscriptions && <p className="sidebar-subscription-message">Loading…</p>}

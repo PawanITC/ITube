@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import Header from './components/Header';
+import History from './pages/History';
 import Sidebar from './components/Sidebar';
 import VideoGrid from './components/Video/VideoGrid';
 import UploadVideoPage from './components/Video/UploadVideoPage';
@@ -11,6 +12,7 @@ import CheckoutCompletePage from './components/Membership/CheckoutCompletePage';
 import './App.css';
 
 function readRoute() {
+  if (window.location.pathname === '/history' || window.location.hash === '#history') return { page: 'history' };
   const watchMatch = window.location.pathname.match(/^\/watch\/(\d+)$/);
   if (watchMatch) return { page: 'watch', videoId: Number(watchMatch[1]) };
   const channelMatch = window.location.pathname.match(/^\/channel\/(\d+)$/);
@@ -35,7 +37,7 @@ function App() {
   const [channelsError, setChannelsError] = useState('');
 
   useEffect(() => {
-    if (route.page === 'upload') return;
+    if (route.page === 'upload' || route.page === 'history') return;
     let cancelled = false;
     setVideosLoading(true);
     fetch('/api/videos')
@@ -92,7 +94,11 @@ function App() {
       setRoute(readRoute());
     }
     window.addEventListener('popstate', syncPageFromLocation);
-    return () => window.removeEventListener('popstate', syncPageFromLocation);
+    window.addEventListener('hashchange', syncPageFromLocation);
+    return () => {
+      window.removeEventListener('popstate', syncPageFromLocation);
+      window.removeEventListener('hashchange', syncPageFromLocation);
+    };
   }, []);
 
   function openUploadPage(session) {
@@ -109,6 +115,11 @@ function App() {
   function openVideo(videoId) {
     window.history.pushState({}, '', `/watch/${videoId}`);
     setRoute({ page: 'watch', videoId });
+  }
+
+  function openHistory() {
+    window.history.pushState({}, '', '/history');
+    setRoute({ page: 'history' });
   }
 
   function openMemberships() {
@@ -135,7 +146,7 @@ function App() {
       ) : route.page === 'channel' ? (
         <ChannelPage channelId={route.channelId} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} onOpenMemberships={openMemberships} />
       ) : (
-        <><Sidebar session={activeSession} onSelectChannel={openChannel} onOpenMemberships={openMemberships} /><main className="main-content"><div className="feed-content">{searchMode === 'channels' ? <ChannelGrid channels={channelResults} loading={channelsLoading} error={channelsError} query={search} onSelectChannel={openChannel} /> : <VideoGrid videos={visibleVideos} loading={videosLoading} error={videosError} onSelectVideo={openVideo} onSelectChannel={openChannel} />}</div></main></>
+        <><Sidebar activePage={route.page === 'history' ? 'History' : 'Home'} onOpenHistory={openHistory} onHome={returnHome} session={activeSession} onSelectChannel={openChannel} onOpenMemberships={openMemberships} /><main className="main-content"><nav className="mobile-library-nav" aria-label="Mobile library"><a href="/" onClick={event => { event.preventDefault(); returnHome(); }} aria-current={route.page === 'home' ? 'page' : undefined}>Home</a><a href="/history" onClick={event => { event.preventDefault(); openHistory(); }} aria-current={route.page === 'history' ? 'page' : undefined}>History</a></nav>{route.page === 'history' ? <History onHome={returnHome} /> : <div className="feed-content">{searchMode === 'channels' ? <ChannelGrid channels={channelResults} loading={channelsLoading} error={channelsError} query={search} onSelectChannel={openChannel} /> : <VideoGrid videos={visibleVideos} loading={videosLoading} error={videosError} onSelectVideo={openVideo} onSelectChannel={openChannel} />}</div>}</main></>
       )}
     </div>
   );
