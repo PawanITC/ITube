@@ -122,4 +122,4 @@ The code can't do these. Each needs a decision or approval from you.
 | Stuck on "Confirming your payment…" | Webhooks aren't arriving. Is `stripe listen` running, and does `STRIPE_WEBHOOK_SECRET` match its output? |
 | Webhook returns `400 Invalid signature` | The secret is wrong, or something re-serialised the body. The endpoint must receive the raw bytes. |
 | `webhook_inbox` rows with `FAILED` status | Check `last_error`. After fixing the cause, set `status='RECEIVED', attempts=0, next_attempt_at=now()` to replay them. |
-| Members-only video plays for a while after cancelling | Expected. An issued token lasts up to `itube.playback.token-ttl` (10 minutes). New tokens are refused straight away. |
+| Members-only video plays for a while after cancelling | Expected. An issued token lasts 10 minutes plus the video's length (max 6 hours) so streaming doesn't stall. New tokens are refused straight away. |

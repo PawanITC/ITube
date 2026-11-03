@@ -12,6 +12,7 @@ import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -51,8 +52,14 @@ public class PlaybackTokenService {
         this.key = new SecretKeySpec(secret, ALGORITHM);
     }
 
-    public IssuedToken issue(long videoId, long userId) {
-        long expires = Instant.now(clock).plus(properties.tokenTtl()).getEpochSecond();
+    /**
+     * The video is streamed in many range requests, each checking the token, so the token must
+     * outlast playback: base TTL plus the video's length, capped so a leaked token can't live forever.
+     */
+    public IssuedToken issue(long videoId, long userId, Duration videoLength) {
+        Duration ttl = properties.tokenTtl().plus(videoLength == null ? Duration.ZERO : videoLength);
+        if (ttl.compareTo(properties.maxTokenTtl()) > 0) ttl = properties.maxTokenTtl();
+        long expires = Instant.now(clock).plus(ttl).getEpochSecond();
         String payload = videoId + "." + userId + "." + expires;
         String token = ENCODER.encodeToString(payload.getBytes(StandardCharsets.UTF_8)) + "." + ENCODER.encodeToString(sign(payload));
         return new IssuedToken(token, OffsetDateTime.ofInstant(Instant.ofEpochSecond(expires), ZoneOffset.UTC));
