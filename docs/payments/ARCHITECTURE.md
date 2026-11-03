@@ -159,10 +159,10 @@ The schema is in `backend/src/main/resources/schema-payments.sql`. Conventions:
 ## 6. Members-only playback
 
 - `video.visibility` is one of `PUBLIC`, `UNLISTED`, `PRIVATE` or `MEMBERS_ONLY`. A `MEMBERS_ONLY` video can also set `required_tier_level`; viewers on that tier level or higher can watch.
-- `GET /api/videos/{id}/playback-authorisation` checks the viewer's entitlement **on the server**. If they're allowed, it returns a token valid for `itube.playback.token-ttl` (default 10 minutes), signed with HMAC-SHA256, bound to the video and user.
+- `GET /api/videos/{id}/playback-authorisation` checks the viewer's entitlement **on the server**. If they're allowed, it returns a token signed with HMAC-SHA256 and bound to the video and user. Video is streamed in many range requests and each one checks the token, so it lasts `itube.playback.token-ttl` (10 minutes) plus the video's length, capped at `itube.playback.max-token-ttl` (6 hours). If one still expires, the player fetches a fresh token and resumes.
 - `/api/videos/{id}/file` and `/renditions/{quality}` **refuse** non-public videos unless the request carries a valid token. Hiding the player in the frontend is not the security boundary.
 - Feeds and channel pages list `MEMBERS_ONLY` videos with a badge but no playable URL. `PRIVATE` and `UNLISTED` videos are not listed.
-- When access ends, new tokens are refused immediately. An already-issued token keeps working for at most its TTL.
+- When access ends, new tokens are refused immediately. An already-issued token keeps working for at most its lifetime.
 
 ## 7. Webhooks and reliability
 

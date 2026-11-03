@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.server.ResponseStatusException;
+import java.time.Duration;
 import java.util.List;
 import java.util.function.BiFunction;
 
@@ -99,7 +100,8 @@ public class VideoService {
             return new PlaybackAuthorisationDto(videoId, access.channelId(), visibility, access.requiredTierLevel(),
                     true, null, sourceUrl, null, null);
         }
-        PlaybackTokenService.IssuedToken token = playbackTokenService.issue(videoId, userId);
+        Duration videoLength = access.duration() == null ? null : Duration.ofSeconds(access.duration().toSecondOfDay());
+        PlaybackTokenService.IssuedToken token = playbackTokenService.issue(videoId, userId, videoLength);
         return new PlaybackAuthorisationDto(videoId, access.channelId(), visibility, access.requiredTierLevel(),
                 true, null, sourceUrl + "?token=" + token.token(), token.token(), token.expiresAt());
     }

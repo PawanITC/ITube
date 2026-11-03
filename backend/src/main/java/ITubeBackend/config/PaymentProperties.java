@@ -15,6 +15,8 @@ public record PaymentProperties(
         // Stripe product tax code for membership tiers; required when Managed Payments or Stripe Tax is on
         String membershipTaxCode,
         int platformFeeBps,
+        // Stripe Managed Payments makes Stripe the merchant of record; off because iTube is a Connect marketplace
+        boolean managedPayments,
         boolean allowLiveMode,
         Memberships memberships,
         RateLimit rateLimit) {
