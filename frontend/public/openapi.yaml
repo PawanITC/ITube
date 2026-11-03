@@ -10,9 +10,71 @@ servers:
   - url: /api
     description: Local dev (Vite proxies /api to http://localhost:8080)
 tags:
+  - name: History
+    description: Watch history. Temporary userId parameter will be replaced by authenticated identity.
   - name: Videos
     description: Browsing and searching videos
 paths:
+  /history:
+    parameters:
+      - $ref: '#/components/parameters/HistoryUserId'
+    get:
+      tags: [History]
+      summary: List a user's watch history, newest first
+      description: Returns an array ordered by watchedAt descending, then history ID descending. An empty array means there are no entries on this page.
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: One page of history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/HistoryResponse' }
+        '400': { description: Invalid or missing parameters }
+    post:
+      tags: [History]
+      summary: Record a watch event
+      description: Each request creates a separate entry, including repeat watches. Time is assigned by the server. Video existence is not checked until the video feature is integrated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HistoryRequest' }
+      responses:
+        '201':
+          description: Created history entry
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HistoryResponse' }
+        '400': { description: Invalid parameters or JSON body }
+    delete:
+      tags: [History]
+      summary: Clear all history belonging to the supplied user
+      responses:
+        '204': { description: History cleared or already empty. No response body. }
+        '400': { description: Invalid or missing user ID }
+  /history/{id}:
+    parameters:
+      - $ref: '#/components/parameters/HistoryUserId'
+      - name: id
+        in: path
+        required: true
+        description: History entry ID, not video ID.
+        schema: { type: integer, format: int64, minimum: 1 }
+    delete:
+      tags: [History]
+      summary: Delete one history entry belonging to the supplied user
+      responses:
+        '204': { description: Entry deleted. No response body. }
+        '400': { description: Invalid or missing parameters }
+        '404': { description: Entry does not exist for this user }
   /videos:
     get:
       tags: [Videos]
@@ -35,7 +97,26 @@ paths:
                 items:
                   $ref: '#/components/schemas/Video'
 components:
+  parameters:
+    HistoryUserId:
+      name: userId
+      in: query
+      required: true
+      description: Temporary development identity. Must contain a non-whitespace character. Replace with the authenticated user before deployment.
+      schema: { type: string, minLength: 1, maxLength: 255 }
   schemas:
+    HistoryRequest:
+      type: object
+      required: [videoId]
+      properties:
+        videoId: { type: integer, format: int64, minimum: 1, example: 25 }
+    HistoryResponse:
+      type: object
+      required: [id, videoId, watchedAt]
+      properties:
+        id: { type: integer, format: int64, description: Unique history entry ID }
+        videoId: { type: integer, format: int64 }
+        watchedAt: { type: string, format: date-time }
     Video:
       type: object
       required: [title, channel]

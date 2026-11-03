@@ -4,7 +4,7 @@ A video-sharing platform with a **React** frontend and a **Spring Boot** backend
 
 ```
 ITube/
-├── backend/     Spring Boot 4 (Java 21, Maven) - REST API on http://localhost:8080
+├── backend/     Spring Boot 4 (Java 21, Maven) - REST API on http://localhost:8081
 └── frontend/    React 19 + Vite - web app on http://localhost:3000
 ```
 
@@ -30,7 +30,7 @@ cd ITube
 cd backend
 ./mvnw spring-boot:run        # Windows CMD/PowerShell: mvnw.cmd spring-boot:run
 ```
-The API starts on http://localhost:8080. It has no endpoints yet.
+The API starts on http://localhost:8081. The [History feature guide](backend/HISTORY.md) explains its endpoints, H2 setup, and future PostgreSQL integration.
 
 ### 2. Run the frontend (in a second terminal)
 ```bash
@@ -66,7 +66,7 @@ Open the `ITube` folder. If IntelliJ doesn't detect the backend, right-click `ba
 
 ## How the frontend and backend connect
 
-In development, the frontend's dev server forwards any request starting with `/api/` to the backend on port 8080 (configured in `frontend/vite.config.js`). Frontend code therefore calls relative URLs such as `fetch('/api/videos')`, and no CORS setup is needed.
+In development, the frontend's dev server forwards any request starting with `/api/` to the backend on port 8081 (configured in `frontend/vite.config.js`). Frontend code therefore calls relative URLs such as `fetch('/api/videos')`, and no CORS setup is needed.
 
 **Backend convention:** put every REST endpoint under `/api/...` (e.g. `@RequestMapping("/api/videos")`) so the proxy picks it up.
 

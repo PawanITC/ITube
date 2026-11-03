@@ -9,7 +9,7 @@ export default defineConfig({
     // Forward /api calls to the Spring Boot backend so the browser sees one origin (no CORS setup needed in dev).
     proxy: {
       // Trailing slash matters: '/api' alone would also swallow the /api-docs page.
-      '/api/': 'http://localhost:8080',
+      '/api/': 'http://localhost:8081',
     },
   },
   build: {
