@@ -1,5 +1,6 @@
 package ITubeBackend.controller;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import ITubeBackend.dto.payments.CheckoutResponse;
 import ITubeBackend.dto.payments.CheckoutStatusDto;
 import ITubeBackend.dto.payments.MembershipCheckoutRequest;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+@Tag(name = "Payments", description = "Stripe Checkout and Customer Portal")
 @RestController
 @RequestMapping("/api/payments")
 public class PaymentController {

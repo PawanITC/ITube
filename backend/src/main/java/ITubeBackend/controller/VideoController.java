@@ -1,5 +1,6 @@
 package ITubeBackend.controller;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import ITubeBackend.dto.video.CreateVideo;
 import ITubeBackend.dto.video.PlaybackAuthorisationDto;
 import ITubeBackend.dto.video.UpdateVisibilityRequest;
@@ -29,6 +30,7 @@ import java.io.IOException;
 import java.time.LocalTime;
 import java.util.List;
 
+@Tag(name = "Videos", description = "Upload, listing, playback and visibility")
 @RestController
 public class VideoController {
     private final VideoService videoService;

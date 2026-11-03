@@ -1,5 +1,6 @@
 package ITubeBackend.controller;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import ITubeBackend.service.payments.StripeWebhookService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
  * Stripe calls this endpoint. It has no user session; the Stripe signature is its authentication,
  * and it is always checked against the raw request bytes.
  */
+@Tag(name = "Stripe webhooks", description = "Called by Stripe; requires a valid Stripe-Signature")
 @RestController
 public class StripeWebhookController {
     private final StripeWebhookService webhookService;

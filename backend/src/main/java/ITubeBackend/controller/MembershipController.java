@@ -1,5 +1,6 @@
 package ITubeBackend.controller;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import ITubeBackend.dto.memberships.ChangeTierRequest;
 import ITubeBackend.dto.memberships.ChannelTiersDto;
 import ITubeBackend.dto.memberships.CreateTierRequest;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /** Paid channel memberships. Free Subscribe stays in ChannelController and never touches Stripe. */
+@Tag(name = "Memberships", description = "Paid channel membership tiers and viewer memberships")
 @RestController
 @RequestMapping("/api/memberships")
 public class MembershipController {
