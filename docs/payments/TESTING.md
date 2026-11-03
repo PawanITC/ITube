@@ -106,11 +106,11 @@ The code can't do these. Each needs a decision or approval from you.
 
 | # | What | Why | Where |
 |---|---|---|---|
-| 1 | **Decide on Managed Payments** | It's **on by default** in this sandbox. With it on, Stripe acts as merchant of record for digital goods and handles tax. That conflicts with the planned Connect payout model (iTube as merchant of record, see ARCHITECTURE §3), so it is a business and legal decision. With it on, every product needs a tax code, which the app now sets (`txcd_10402200`). | Settings → Managed Payments |
-| 2 | Configure the **Customer Portal** | Without a saved configuration, `Manage billing` fails in live mode. Allow "cancel at period end", "update payment method" and "switch plans", limited to the channel's own tier products. | Settings → Billing → Customer portal |
+| 1 | **Managed Payments** (done in code) | It's on by default in this account and would make Stripe the merchant of record, which doesn't fit the Connect marketplace plan. Membership Checkouts now send `managed_payments.enabled=false` (`STRIPE_MANAGED_PAYMENTS`). Optionally also switch the account default off so other flows don't pick it up. | Settings → Managed Payments |
+| 2 | **Customer Portal** (sandbox done) | The sandbox default config already has plan switching **off** (tier changes must go through iTube so a membership can't be switched onto another channel's tier), cancel at period end, and payment method updates. **Live mode has its own configuration**: copy these settings before launch. | Settings → Billing → Customer portal |
 | 3 | Create the **production webhook endpoint** | `stripe listen` only works locally. Point it at `https://<domain>/api/webhooks/stripe` and subscribe to the events in ARCHITECTURE §7. Use the signing secret it gives you in production only. | Developers → Webhooks |
-| 4 | **Smart Retries / dunning** | Decides how long a failed renewal stays `past_due` before it becomes `unpaid` or `canceled`. This affects how long members keep access after a failed payment. | Settings → Billing → Subscriptions and emails |
-| 5 | **Tax** | Decide on Stripe Tax (needs a UK VAT registration added first) and have an accountant confirm the tax code. | Settings → Tax |
+| 4 | **Revenue recovery** | Turn on Smart Retries, failed-payment emails and automatic card updates. Choose what happens after the last retry (cancel or mark unpaid); this decides how long members keep access after a failed payment. | Settings → Billing → Revenue recovery |
+| 5 | **Tax** | Confirm the head-office address and turn on Stripe Tax threshold monitoring (free; alerts you before a VAT registration is needed). Have an accountant confirm the tax code `txcd_10402200`. | Settings → Tax |
 | 6 | **Rotate the secret key that was shared in chat** | A key that has been pasted anywhere outside a secrets store should be treated as exposed. Roll it and switch to a restricted key. | Developers → API keys |
 | 7 | Set the **platform commission** | `PLATFORM_FEE_BPS` defaults to 0. | Business decision |
 
@@ -118,7 +118,7 @@ The code can't do these. Each needs a decision or approval from you.
 
 | Symptom | Cause / fix |
 |---|---|
-| Checkout returns `502` | Look for `Stripe call failed … requestId=req_…` in the backend log and open that request ID in the Dashboard's request logs. The usual cause is a missing product tax code with Managed Payments on. |
+| Checkout returns `502` | Look for `Stripe call failed … requestId=req_…` in the backend log and open that request ID in the Dashboard's request logs. |
 | Stuck on "Confirming your payment…" | Webhooks aren't arriving. Is `stripe listen` running, and does `STRIPE_WEBHOOK_SECRET` match its output? |
 | Webhook returns `400 Invalid signature` | The secret is wrong, or something re-serialised the body. The endpoint must receive the raw bytes. |
 | `webhook_inbox` rows with `FAILED` status | Check `last_error`. After fixing the cause, set `status='RECEIVED', attempts=0, next_attempt_at=now()` to replay them. |
