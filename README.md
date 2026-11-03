@@ -96,7 +96,7 @@ Paid channel memberships use Stripe Checkout, Billing and webhooks. **Free Subsc
 
 Quick start:
 1. `cp backend/.env.example backend/.env` and add a Stripe **sandbox** key. `.env` is git-ignored: never commit keys.
-2. `stripe listen --forward-to localhost:8080/api/webhooks/stripe` and put the printed `whsec_…` in `STRIPE_WEBHOOK_SECRET`.
+2. Run `stripe listen` (full command with the `--events` list in TESTING.md), or the `stripe-cli` service in `docs/payments/docker-compose.example.yml`, and put the printed `whsec_…` in `STRIPE_WEBHOOK_SECRET`.
 3. Start the backend and frontend as above. Without a Stripe key the app still runs, and payment endpoints return `503`.
 
 Terraform:

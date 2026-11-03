@@ -25,7 +25,7 @@ public interface VideoRepository extends JpaRepository<VideoEntity, Long> {
     List<VideoSummaryDto> findVideoSummariesByChannelId(@Param("channelId") Long channelId,
                                                         @Param("includeHidden") boolean includeHidden);
 
-    @Query("select new ITubeBackend.dto.video.VideoAccessDto(v.videoId, v.channel.channelId, v.channel.user.userId, v.visibility, v.requiredTierLevel) " +
+    @Query("select new ITubeBackend.dto.video.VideoAccessDto(v.videoId, v.channel.channelId, v.channel.user.userId, v.visibility, v.requiredTierLevel, v.duration) " +
             "from VideoEntity v where v.videoId = :videoId")
     Optional<VideoAccessDto> findAccess(@Param("videoId") Long videoId);
 

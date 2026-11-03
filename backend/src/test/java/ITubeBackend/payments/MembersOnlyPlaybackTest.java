@@ -48,7 +48,7 @@ class MembersOnlyPlaybackTest {
         EntitlementService entitlement = new EntitlementService(membershipRepository, tierRepository,
                 new MembershipAccessPolicy(paymentProperties(true), CLOCK));
         PlaybackTokenService tokens = new PlaybackTokenService(
-                new PlaybackProperties(Base64.getEncoder().encodeToString(new byte[32]), Duration.ofMinutes(10)), CLOCK);
+                new PlaybackProperties(Base64.getEncoder().encodeToString(new byte[32]), Duration.ofMinutes(10), Duration.ofHours(6)), CLOCK);
         videoService = new VideoService(mock(ChannelRepository.class), videoRepository,
                 mock(ApplicationEventPublisher.class), entitlement, tokens);
         video(1L, VideoVisibility.PUBLIC, null);
@@ -117,7 +117,7 @@ class MembersOnlyPlaybackTest {
     }
 
     private void video(Long id, VideoVisibility visibility, Integer level) {
-        when(videoRepository.findAccess(id)).thenReturn(Optional.of(new VideoAccessDto(id, CHANNEL, CREATOR, visibility, level)));
+        when(videoRepository.findAccess(id)).thenReturn(Optional.of(new VideoAccessDto(id, CHANNEL, CREATOR, visibility, level, java.time.LocalTime.of(0, 45))));
     }
 
     private void member(String status, java.time.OffsetDateTime periodEnd) {

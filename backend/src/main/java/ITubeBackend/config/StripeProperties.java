@@ -13,7 +13,8 @@ public record StripeProperties(
         String secretKey,
         String webhookSecret,
         int webhookMaxAttempts,
-        Duration webhookRetention) {
+        Duration webhookRetention,
+        boolean detailedErrors) {
 
     public boolean configured() {
         return secretKey != null && !secretKey.isBlank();
@@ -21,6 +22,11 @@ public record StripeProperties(
 
     public boolean liveMode() {
         return configured() && (secretKey.startsWith("sk_live_") || secretKey.startsWith("rk_live_"));
+    }
+
+    /** Show Stripe's own error reason to API callers. Development aid; never with a live key. */
+    public boolean showDetailedErrors() {
+        return detailedErrors && !liveMode();
     }
 
     // Never print the secrets themselves

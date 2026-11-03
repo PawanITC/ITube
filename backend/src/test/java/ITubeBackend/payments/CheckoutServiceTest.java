@@ -86,6 +86,8 @@ class CheckoutServiceTest {
                 .doesNotContainKey("payment_method_types");
         assertThat(sent.get("line_items").toString()).contains("price_supporter");
         assertThat(sent.get("success_url").toString()).contains("{CHECKOUT_SESSION_ID}");
+        assertThat(sent.get("managed_payments").toString()).contains("enabled=false");
+        assertThat(sent.get("subscription_data").toString()).contains("type=flexible");
         verify(customerRepository).lockUser(USER);
         verify(checkoutRepository).save(any());
     }

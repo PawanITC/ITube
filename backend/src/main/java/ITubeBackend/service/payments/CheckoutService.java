@@ -123,7 +123,12 @@ public class CheckoutService {
                 .putMetadata("itube_purpose", MEMBERSHIP)
                 .putMetadata("itube_channel_id", channelId.toString())
                 .putMetadata("itube_tier_id", tier.getTierId().toString())
+                // Explicit so behaviour doesn't depend on the account's Dashboard defaults
+                .setManagedPayments(SessionCreateParams.ManagedPayments.builder()
+                        .setEnabled(properties.managedPayments()).build())
                 .setSubscriptionData(SessionCreateParams.SubscriptionData.builder()
+                        .setBillingMode(SessionCreateParams.SubscriptionData.BillingMode.builder()
+                                .setType(SessionCreateParams.SubscriptionData.BillingMode.Type.FLEXIBLE).build())
                         .putMetadata("itube_channel_id", channelId.toString())
                         .putMetadata("itube_tier_id", tier.getTierId().toString())
                         .build())

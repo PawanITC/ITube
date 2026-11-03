@@ -57,6 +57,7 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
   const videoRef = useRef(null);
   const playerWrapRef = useRef(null);
   const playbackRef = useRef(null);
+  const lastTokenRefreshRef = useRef(0);
   const [processingStatus, setProcessingStatus] = useState('PROCESSING');
   const video = useMemo(() => videos.find(item => item.videoId === videoId), [videos, videoId]);
   const recommendations = useMemo(() => videos.filter(item => item.videoId !== videoId), [videos, videoId]);
@@ -173,6 +174,17 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
     setSettingsPanel('root');
   }
 
+  // Tokens last the video's length, but one can still expire (e.g. paused for hours). When a chunk
+  // request is refused, get a fresh token and resume where the viewer was. If access has ended,
+  // the new answer shows the locked screen instead.
+  async function recoverFromPlaybackError() {
+    if (!playback?.token || Date.now() - lastTokenRefreshRef.current < 30_000) return;
+    lastTokenRefreshRef.current = Date.now();
+    const player = videoRef.current;
+    playbackRef.current = player ? { time: player.currentTime, wasPlaying: !player.paused } : null;
+    try { setPlayback(await fetchPlayback(videoId)); } catch { /* leave the browser's error showing */ }
+  }
+
   function restorePlayback() {
     const playback = playbackRef.current;
     const player = videoRef.current;
@@ -237,7 +249,7 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
               </div>
             ) : (
             <div ref={playerWrapRef} className={`watch-player-wrap${theaterMode ? ' is-theater' : ''}`}>
-              <video ref={videoRef} className="watch-player" src={selectedQuality === 'source' ? playback.sourceUrl : `/api/videos/${videoId}/renditions/${selectedQuality}${tokenQuery}`} onClick={togglePlayback} onLoadedMetadata={event => { setDuration(event.currentTarget.duration); setCurrentTime(event.currentTarget.currentTime); restorePlayback(); }} onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)} onDurationChange={event => setDuration(event.currentTarget.duration)} onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onVolumeChange={event => { setVolume(event.currentTarget.volume); setIsMuted(event.currentTarget.muted); }} onEnded={() => setIsPlaying(false)} onRateChange={event => setPlaybackRate(event.currentTarget.playbackRate)} poster={video.thumbnailUrl || undefined} autoPlay playsInline />
+              <video ref={videoRef} className="watch-player" src={selectedQuality === 'source' ? playback.sourceUrl : `/api/videos/${videoId}/renditions/${selectedQuality}${tokenQuery}`} onClick={togglePlayback} onLoadedMetadata={event => { setDuration(event.currentTarget.duration); setCurrentTime(event.currentTarget.currentTime); restorePlayback(); }} onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)} onDurationChange={event => setDuration(event.currentTarget.duration)} onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onVolumeChange={event => { setVolume(event.currentTarget.volume); setIsMuted(event.currentTarget.muted); }} onEnded={() => setIsPlaying(false)} onError={recoverFromPlaybackError} onRateChange={event => setPlaybackRate(event.currentTarget.playbackRate)} poster={video.thumbnailUrl || undefined} autoPlay playsInline />
               {!isPlaying && <button type="button" className="watch-center-play" aria-label="Play video" onClick={togglePlayback}><Icon name="play" size={34} /></button>}
               <div className="watch-controls">
                 <input className="watch-seek" type="range" min="0" max={duration || 0} step="0.1" value={Math.min(currentTime, duration || 0)} aria-label="Seek video" style={{ '--seek-progress': `${duration ? (currentTime / duration) * 100 : 0}%` }} onChange={event => { if (videoRef.current) videoRef.current.currentTime = Number(event.target.value); }} />

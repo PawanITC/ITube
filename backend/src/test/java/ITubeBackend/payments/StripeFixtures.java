@@ -26,13 +26,13 @@ public final class StripeFixtures {
     }
 
     public static PaymentProperties paymentProperties(boolean pastDueAccess) {
-        return new PaymentProperties("http://localhost:3000", "gbp", "txcd_10402200", 1000, false,
+        return new PaymentProperties("http://localhost:3000", "gbp", "txcd_10402200", 1000, false, false,
                 new PaymentProperties.Memberships(99, 49_999, 6, pastDueAccess, Duration.ofHours(24)),
                 new PaymentProperties.RateLimit(10, Duration.ofMinutes(10)));
     }
 
     public static StripeProperties stripeProperties() {
-        return new StripeProperties("sk_test_dummy", "whsec_dummy", 8, Duration.ofDays(30));
+        return new StripeProperties("sk_test_dummy", "whsec_dummy", 8, Duration.ofDays(30), false);
     }
 
     public static OffsetDateTime inDays(long days) {
