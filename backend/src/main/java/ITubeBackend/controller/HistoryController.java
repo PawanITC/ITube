@@ -68,6 +68,6 @@ public class HistoryController {
     public HistoryResponse addHistory(
             @RequestParam("userId") @NotBlank @Size(max = 255) String userId,
             @Valid @RequestBody HistoryRequest request) {
-        return historyService.addHistory(userId, request.getVideoId());
+        return historyService.addHistory(userId, request.videoId());
     }
 }

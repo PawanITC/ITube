@@ -57,6 +57,11 @@ missing video IDs, and malformed JSON. A missing JSON content type can return 41
    and watch time. User/video IDs are scalar values until the other features are ready.
 6. `HistoryResponse` defines the JSON returned to clients, without exposing the user ID.
 
+Both History DTOs are Java records, following the team's DTO convention. Records
+generate their constructor and accessors automatically: use `request.videoId()`
+instead of `request.getVideoId()`. They have no setters. Request validation stays
+on the record component, and the API JSON property names remain the same.
+
 `HistoryApiTests` starts a real HTTP server and uses H2 to test validation, save/read,
 repeat watches, ordering, paging, single deletion, and clearing. The tests check user
 filtering, not authentication: the query parameter is still client-controlled.
