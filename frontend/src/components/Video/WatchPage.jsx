@@ -1,6 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '../Icon.jsx';
 import VideoCard from './VideoCard.jsx';
+import JoinButton from '../Membership/JoinButton.jsx';
+
+const LOCKED_MESSAGES = {
+  SIGN_IN_REQUIRED: 'This video is for channel members. Click the ITube logo to start a session, then join the channel to watch.',
+  MEMBERSHIP_REQUIRED: 'This video is for channel members. Join the channel to watch it.',
+  HIGHER_TIER_REQUIRED: 'This video is for members on a higher tier. Upgrade your membership to watch it.',
+};
+
+async function fetchPlayback(videoId) {
+  // The server checks entitlement and returns a short-lived token for members-only videos
+  const response = await fetch(`/api/videos/${videoId}/playback-authorisation`, { credentials: 'include' });
+  if (!response.ok) throw new Error(response.status === 404 ? 'Video not found.' : 'Could not load this video.');
+  return response.json();
+}
 
 function formatCommentDate(value) {
   const date = new Date(value);
@@ -19,7 +33,9 @@ function formatPlayerTime(value) {
     : `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
-export default function WatchPage({ videoId, videos, videosLoading, videosError, session, onSelectVideo, onSelectChannel, onHome }) {
+export default function WatchPage({ videoId, videos, videosLoading, videosError, session, onSelectVideo, onSelectChannel, onHome, onOpenMemberships }) {
+  const [playback, setPlayback] = useState(null);
+  const [playbackError, setPlaybackError] = useState('');
   const [comments, setComments] = useState([]);
   const [commentsLoading, setCommentsLoading] = useState(true);
   const [commentsError, setCommentsError] = useState('');
@@ -80,6 +96,18 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
 
   useEffect(() => {
     let cancelled = false;
+    setPlayback(null);
+    setPlaybackError('');
+    fetchPlayback(videoId)
+      .then(result => { if (!cancelled) setPlayback(result); })
+      .catch(error => { if (!cancelled) setPlaybackError(error.message); });
+    return () => { cancelled = true; };
+  }, [videoId, session]);
+
+  const tokenQuery = playback?.token ? `?token=${encodeURIComponent(playback.token)}` : '';
+
+  useEffect(() => {
+    let cancelled = false;
     setComments([]);
     setCommentsLoading(true);
     setCommentsError('');
@@ -133,7 +161,11 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
     }
   }
 
-  function selectQuality(quality) {
+  async function selectQuality(quality) {
+    // Tokens are short-lived; get a fresh one before switching source if it's about to expire
+    if (playback?.expiresAt && Date.parse(playback.expiresAt) - Date.now() < 30_000) {
+      try { setPlayback(await fetchPlayback(videoId)); } catch { /* keep the current token */ }
+    }
     const player = videoRef.current;
     playbackRef.current = player ? { time: player.currentTime, wasPlaying: !player.paused } : null;
     setSelectedQuality(quality);
@@ -196,8 +228,16 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
           <section className="watch-primary">
             {processingStatus === 'PROCESSING' && <p className="watch-message" role="status">Preparing quality options… The original is available now.</p>}
             {processingStatus === 'FAILED' && <p className="watch-message" role="status">Quality processing failed. The original video is still available.</p>}
+            {playbackError ? <p className="watch-message" role="alert">{playbackError}</p> : !playback ? <p className="watch-message">Checking access…</p> : !playback.allowed ? (
+              <div className="locked-player" role="region" aria-label="Members-only video">
+                <span className="members-badge">Members only</span>
+                <h2>{video.title}</h2>
+                <p>{LOCKED_MESSAGES[playback.reason] || 'You do not have access to this video.'}</p>
+                {playback.reason !== 'SIGN_IN_REQUIRED' && <JoinButton channelId={video.channelId} requiredLevel={playback.requiredTierLevel || undefined} onOpenMemberships={onOpenMemberships} label="Join to watch" />}
+              </div>
+            ) : (
             <div ref={playerWrapRef} className={`watch-player-wrap${theaterMode ? ' is-theater' : ''}`}>
-              <video ref={videoRef} className="watch-player" src={selectedQuality === 'source' ? video.videoUrl : `/api/videos/${videoId}/renditions/${selectedQuality}`} onClick={togglePlayback} onLoadedMetadata={event => { setDuration(event.currentTarget.duration); setCurrentTime(event.currentTarget.currentTime); restorePlayback(); }} onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)} onDurationChange={event => setDuration(event.currentTarget.duration)} onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onVolumeChange={event => { setVolume(event.currentTarget.volume); setIsMuted(event.currentTarget.muted); }} onEnded={() => setIsPlaying(false)} onRateChange={event => setPlaybackRate(event.currentTarget.playbackRate)} poster={video.thumbnailUrl || undefined} autoPlay playsInline />
+              <video ref={videoRef} className="watch-player" src={selectedQuality === 'source' ? playback.sourceUrl : `/api/videos/${videoId}/renditions/${selectedQuality}${tokenQuery}`} onClick={togglePlayback} onLoadedMetadata={event => { setDuration(event.currentTarget.duration); setCurrentTime(event.currentTarget.currentTime); restorePlayback(); }} onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)} onDurationChange={event => setDuration(event.currentTarget.duration)} onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onVolumeChange={event => { setVolume(event.currentTarget.volume); setIsMuted(event.currentTarget.muted); }} onEnded={() => setIsPlaying(false)} onRateChange={event => setPlaybackRate(event.currentTarget.playbackRate)} poster={video.thumbnailUrl || undefined} autoPlay playsInline />
               {!isPlaying && <button type="button" className="watch-center-play" aria-label="Play video" onClick={togglePlayback}><Icon name="play" size={34} /></button>}
               <div className="watch-controls">
                 <input className="watch-seek" type="range" min="0" max={duration || 0} step="0.1" value={Math.min(currentTime, duration || 0)} aria-label="Seek video" style={{ '--seek-progress': `${duration ? (currentTime / duration) * 100 : 0}%` }} onChange={event => { if (videoRef.current) videoRef.current.currentTime = Number(event.target.value); }} />
@@ -232,8 +272,12 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
                 </div>
               </div>
             </div>
-            <h1 className="watch-title">{video.title}</h1>
-            <a className="watch-channel" href={`/channel/${video.channelId}`} onClick={event => { event.preventDefault(); onSelectChannel(video.channelId); }}>{video.channelName}</a>
+            )}
+            <h1 className="watch-title">{video.visibility === 'MEMBERS_ONLY' && <span className="members-badge inline">Members only</span>}{video.title}</h1>
+            <div className="watch-channel-row">
+              <a className="watch-channel" href={`/channel/${video.channelId}`} onClick={event => { event.preventDefault(); onSelectChannel(video.channelId); }}>{video.channelName}</a>
+              <JoinButton channelId={video.channelId} onOpenMemberships={onOpenMemberships} />
+            </div>
 
             <section className="comments-section" aria-labelledby="comments-heading">
               <h2 id="comments-heading">Comments <span>({comments.length})</span></h2>

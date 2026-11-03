@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
 import VideoGrid from '../Video/VideoGrid.jsx';
+import JoinButton from '../Membership/JoinButton.jsx';
+import TierManager from '../Membership/TierManager.jsx';
 
 function formatSubscriberCount(count) {
   return `${count} ${count === 1 ? 'subscriber' : 'subscribers'}`;
 }
 
-export default function ChannelPage({ channelId, onHome, onSelectVideo, onSelectChannel }) {
+export default function ChannelPage({ channelId, onHome, onSelectVideo, onSelectChannel, onOpenMemberships }) {
+  const checkoutCancelled = new URLSearchParams(window.location.search).get('checkout') === 'cancelled';
   const [channel, setChannel] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -58,11 +61,14 @@ export default function ChannelPage({ channelId, onHome, onSelectVideo, onSelect
           <header className="channel-banner">
             <span className="channel-page-avatar">{channel.channelName.trim().slice(0, 1).toUpperCase() || '?'}</span>
             <div className="channel-page-info"><h1>{channel.channelName}</h1><p>{formatSubscriberCount(channel.subscriberCount)}</p></div>
+            {!channel.owner && <JoinButton channelId={channelId} onOpenMemberships={onOpenMemberships} />}
             {!channel.owner && <button type="button" className={`subscribe-button${channel.subscribed ? ' subscribed' : ''}`} onClick={toggleSubscription} disabled={updatingSubscription}>
               {updatingSubscription ? 'Updating…' : channel.subscribed ? 'Subscribed' : 'Subscribe'}
             </button>}
           </header>
           {subscriptionError && <p className="subscription-error" role="alert">{subscriptionError}</p>}
+          {checkoutCancelled && <p className="subscription-error" role="status">Checkout cancelled. You haven't been charged.</p>}
+          {channel.owner && <TierManager channelId={channelId} />}
           <section className="channel-videos">
             <h2>Videos</h2>
             <VideoGrid videos={channel.videos} loading={false} onSelectVideo={onSelectVideo} onSelectChannel={onSelectChannel} />
