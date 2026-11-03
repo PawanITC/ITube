@@ -30,8 +30,10 @@ Install the [Stripe CLI](https://docs.stripe.com/stripe-cli), then:
 
 ```bash
 stripe login                       # once
-stripe listen --forward-to localhost:8080/api/webhooks/stripe
+stripe listen --forward-to localhost:8080/api/webhooks/stripe \n  --events checkout.session.completed,checkout.session.async_payment_succeeded,checkout.session.async_payment_failed,checkout.session.expired,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,customer.subscription.paused,customer.subscription.resumed,invoice.paid,invoice.payment_failed,charge.refunded,charge.dispute.created,charge.dispute.updated,charge.dispute.closed,radar.early_fraud_warning.created
 ```
+
+Current CLI versions refuse to start without `--events`. The list above is exactly the events the backend handles.
 
 `stripe listen` prints a `whsec_…` secret. Put it in `STRIPE_WEBHOOK_SECRET` and restart the backend. Leave `stripe listen` running while you test. Without it no webhooks arrive, and memberships stay "confirming" forever. **That is by design: the app never grants access from the Checkout redirect alone.**
 
@@ -118,8 +120,9 @@ The code can't do these. Each needs a decision or approval from you.
 
 | Symptom | Cause / fix |
 |---|---|
-| Checkout returns `502` | Look for `Stripe call failed … requestId=req_…` in the backend log and open that request ID in the Dashboard's request logs. |
+| "The payment provider could not complete the request" | Set `STRIPE_DETAILED_ERRORS=true` in `backend/.env` (test keys only; ignored with a live key) and the app shows Stripe's actual reason. The backend log always has it: look for `Stripe call failed … message=…`, and open the `requestId` in the Dashboard's request logs. |
 | Stuck on "Confirming your payment…" | Webhooks aren't arriving. Is `stripe listen` running, and does `STRIPE_WEBHOOK_SECRET` match its output? |
 | Webhook returns `400 Invalid signature` | The secret is wrong, or something re-serialised the body. The endpoint must receive the raw bytes. |
 | `webhook_inbox` rows with `FAILED` status | Check `last_error`. After fixing the cause, set `status='RECEIVED', attempts=0, next_attempt_at=now()` to replay them. |
+| Backend logs `Failed to connect to localhost:4318` every 10s | The monitoring container isn't running. It's harmless, but start `grafana-lgtm` (it's in the compose file and in `tf_docker`). Grafana is then at http://localhost:3080. |
 | Members-only video plays for a while after cancelling | Expected. An issued token lasts 10 minutes plus the video's length (max 6 hours) so streaming doesn't stall. New tokens are refused straight away. |

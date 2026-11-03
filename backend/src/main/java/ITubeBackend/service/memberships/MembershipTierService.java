@@ -85,16 +85,18 @@ public class MembershipTierService {
         tier.setCurrency(properties.currency());
         tier = tierRepository.saveAndFlush(tier);
 
-        // Stripe objects are created after the row exists so the idempotency key can use its id.
+        // Idempotency keys get a random part: local ids aren't unique across databases (a reset dev DB or
+        // a teammate's machine sharing the sandbox reuses them) and Stripe rejects a reused key with
+        // different parameters. The SDK reuses each key for its own retries, so a retry still can't duplicate.
         // If this transaction then rolls back, the orphaned test Product is harmless and never sold.
         try {
             String productId = stripe.createProduct(productName(channel, tier), tier.getDescription(),
                     properties.membershipTaxCode(),
                     Map.of("itube_tier_id", tier.getTierId().toString(), "itube_channel_id", channelId.toString()),
-                    "tier-product-" + tier.getTierId());
+                    "tier-product-" + tier.getTierId() + "-" + UUID.randomUUID());
             tier.setStripeProductId(productId);
             tier.setStripePriceId(stripe.createMonthlyPrice(productId, tier.getPriceMinor(), tier.getCurrency(),
-                    "tier-price-" + tier.getTierId() + "-" + tier.getPriceMinor()));
+                    "tier-price-" + tier.getTierId() + "-" + UUID.randomUUID()));
         } catch (StripeException exception) {
             throw new StripeCallException(exception);
         }

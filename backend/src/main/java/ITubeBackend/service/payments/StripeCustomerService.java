@@ -11,6 +11,8 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.UUID;
+
 @Service
 public class StripeCustomerService {
     private final PaymentCustomerRepository customerRepository;
@@ -39,8 +41,9 @@ public class StripeCustomerService {
         AccountDto account = accountRepository.findDtoById(userId);
         if (account == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Account not found");
         try {
-            // Same key on retry returns the same customer instead of creating a second one
-            String customerId = stripe.createCustomer(userId, account.email(), "itube-customer-" + userId);
+            // Random part because user ids repeat across databases. Duplicate customers are prevented by the
+            // per-user lock plus the payment_customers row; the SDK reuses this key for its own retries.
+            String customerId = stripe.createCustomer(userId, account.email(), "itube-customer-" + userId + "-" + UUID.randomUUID());
             customerRepository.save(new PaymentCustomerEntity(userId, customerId));
             return customerId;
         } catch (StripeException exception) {

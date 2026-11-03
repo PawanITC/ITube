@@ -32,7 +32,7 @@ public final class StripeFixtures {
     }
 
     public static StripeProperties stripeProperties() {
-        return new StripeProperties("sk_test_dummy", "whsec_dummy", 8, Duration.ofDays(30));
+        return new StripeProperties("sk_test_dummy", "whsec_dummy", 8, Duration.ofDays(30), false);
     }
 
     public static OffsetDateTime inDays(long days) {
