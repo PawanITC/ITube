@@ -18,6 +18,8 @@ public class AccountService {
 
     private static final String DEV_EMAIL = "demo@itube.local";
     private static final String DEV_CHANNEL = "Demo Channel";
+    private static final String DEV_VIEWER_EMAIL = "viewer@itube.local";
+    private static final String DEV_VIEWER_CHANNEL = "Demo Viewer";
 
     private final AccountRepository accountRepository;
     private final ChannelRepository channelRepository;
@@ -33,23 +35,34 @@ public class AccountService {
     // DELETE LATER - UNTIL LOGIN IS COMPLETE
     @Transactional
     public DevSessionDto createDevSession() {
-        AccountEntity accountEntity = accountRepository.findEntityByEmail(DEV_EMAIL).orElseGet(() -> {
+        return getOrCreateDevAccount(DEV_EMAIL, "Demo", "User", DEV_CHANNEL);
+    }
+
+    // DELETE LATER - UNTIL LOGIN IS COMPLETE. A fixed second user, so demos can switch between a
+    // creator (createDevSession) and the same viewer without a private browser window.
+    @Transactional
+    public DevSessionDto createDevViewerSession() {
+        return getOrCreateDevAccount(DEV_VIEWER_EMAIL, "Demo", "Viewer", DEV_VIEWER_CHANNEL);
+    }
+
+    private DevSessionDto getOrCreateDevAccount(String email, String firstname, String lastname, String channelName) {
+        AccountEntity accountEntity = accountRepository.findEntityByEmail(email).orElseGet(() -> {
             AccountEntity newAccount = new AccountEntity();
-            newAccount.setFirstname("Demo");
-            newAccount.setLastname("User");
-            newAccount.setEmail(DEV_EMAIL);
+            newAccount.setFirstname(firstname);
+            newAccount.setLastname(lastname);
+            newAccount.setEmail(email);
             newAccount.setPasswordHash(passwordHasher.hash("itube-dev-only-password"));
             return accountRepository.save(newAccount);
         });
 
-        AccountDto account = accountRepository.findDtoByEmail(DEV_EMAIL).orElseThrow();
-        ChannelDto channel = channelRepository.findDtoByOwnerAndName(account.userId(), DEV_CHANNEL)
+        AccountDto account = accountRepository.findDtoByEmail(email).orElseThrow();
+        ChannelDto channel = channelRepository.findDtoByOwnerAndName(account.userId(), channelName)
                 .orElseGet(() -> {
                     ChannelEntity newChannel = new ChannelEntity();
                     newChannel.setUser(accountEntity);
-                    newChannel.setChannelName(DEV_CHANNEL);
+                    newChannel.setChannelName(channelName);
                     channelRepository.save(newChannel);
-                    return channelRepository.findDtoByOwnerAndName(account.userId(), DEV_CHANNEL).orElseThrow();
+                    return channelRepository.findDtoByOwnerAndName(account.userId(), channelName).orElseThrow();
                 });
 
         return new DevSessionDto(account.userId(), account.email(), channel.channelId(), channel.channelName());
