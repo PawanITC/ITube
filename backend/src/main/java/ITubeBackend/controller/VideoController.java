@@ -1,28 +1,18 @@
 package ITubeBackend.controller;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
-import ITubeBackend.dto.video.CreateVideo;
-import ITubeBackend.dto.video.PlaybackAuthorisationDto;
-import ITubeBackend.dto.video.UpdateVisibilityRequest;
+import ITubeBackend.dto.video.*;
 import ITubeBackend.entities.VideoVisibility;
 import ITubeBackend.security.CurrentUser;
-import ITubeBackend.dto.video.VideoSummaryDto;
-import ITubeBackend.dto.video.VideoAssetDto;
 import ITubeBackend.service.video.VideoService;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
-import org.springframework.http.CacheControl;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -88,24 +78,20 @@ public class VideoController {
 
     @GetMapping("/api/videos/{videoId}/renditions/{quality}")
     public ResponseEntity<byte[]> getRendition(@PathVariable Long videoId, @PathVariable String quality,
-                                               @RequestParam(value = "token", required = false) String token) {
+                                               @RequestParam(value = "token", required = false) String token,
+                                               @RequestHeader(value = HttpHeaders.RANGE, required = false) String range) {
         boolean openToEveryone = videoService.assertCanStream(videoId, token);
-        VideoAssetDto asset = videoService.getRendition(videoId, quality);
-        return mediaResponse(openToEveryone).contentType(MediaType.parseMediaType(asset.contentType())).body(asset.content());
+        VideoStreamInfo info = videoService.getRenditionStreamInfo(videoId, quality);
+        return videoService.streamRange(info, range, openToEveryone, (start, length) -> videoService.getRenditionChunk(videoId, quality, start, length));
     }
 
     @GetMapping("/api/videos/{videoId}/file")
     public ResponseEntity<byte[]> getVideoFile(@PathVariable Long videoId,
-                                               @RequestParam(value = "token", required = false) String token) {
+                                               @RequestParam(value = "token", required = false) String token,
+                                               @RequestHeader(value = HttpHeaders.RANGE, required = false) String range) {
         boolean openToEveryone = videoService.assertCanStream(videoId, token);
-        VideoAssetDto asset = videoService.getVideoFile(videoId);
-        MediaType contentType = MediaType.parseMediaType(asset.contentType());
-        return mediaResponse(openToEveryone).contentType(contentType).body(asset.content());
-    }
-
-    // Paid or private media must never be stored by shared caches
-    private static ResponseEntity.BodyBuilder mediaResponse(boolean openToEveryone) {
-        return openToEveryone ? ResponseEntity.ok() : ResponseEntity.ok().cacheControl(CacheControl.noStore().cachePrivate());
+        VideoStreamInfo info = videoService.getVideoStreamInfo(videoId);
+        return videoService.streamRange(info, range, openToEveryone, (start, length) -> videoService.getVideoChunk(videoId, start, length));
     }
 
     @GetMapping("/api/videos/{videoId}/thumbnail")
