@@ -49,4 +49,7 @@ public interface StripeApi {
     Optional<String> findInvoiceIdForPaymentIntent(String paymentIntentId) throws StripeException;
 
     Event constructEvent(String payload, String signatureHeader) throws SignatureVerificationException;
+
+    /** Parses an event that was already signature-verified when it was stored in the inbox. */
+    Event parseStoredEvent(String payload);
 }

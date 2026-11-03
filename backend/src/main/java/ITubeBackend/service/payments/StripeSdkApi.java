@@ -178,4 +178,9 @@ public class StripeSdkApi implements StripeApi {
         }
         return client().constructEvent(payload, signatureHeader, properties.webhookSecret());
     }
+
+    @Override
+    public Event parseStoredEvent(String payload) {
+        return client().constructEventWithoutVerification(payload);
+    }
 }
