@@ -19,10 +19,10 @@ PLATFORM_FEE_BPS=0                   # commission in basis points; business deci
 ```
 
 ### Infrastructure
-Start PostgreSQL, Redis and Kafka the usual way (`make up` in `tf_docker/`), or use [docker-compose.example.yml](docker-compose.example.yml):
+On Windows, `.\dev.cmd` from the repo root starts everything in this section for you (see the README's Quick start). By hand, start PostgreSQL, Redis and Kafka with `make up` in `tf_docker/`, or with [docker-compose.yml](../../docker-compose.yml) from the repo root:
 
 ```bash
-docker compose --env-file backend/.env -f docs/payments/docker-compose.example.yml up -d
+docker compose --env-file backend/.env up -d
 ```
 
 ### Stripe CLI (forwards webhooks to localhost)

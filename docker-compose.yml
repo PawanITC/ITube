@@ -1,12 +1,15 @@
-# Local infrastructure for development, as an alternative to tf_docker/ (Terraform).
-# Uses the same ports and credentials the backend expects by default.
+# Local development infrastructure: PostgreSQL, Redis, Kafka, Grafana (logs/traces/metrics) and the
+# Stripe CLI webhook forwarder. Same ports and credentials the backend expects by default.
 #
-#   docker compose --env-file backend/.env -f docs/payments/docker-compose.example.yml up -d
+# Easiest: run dev.cmd (Windows) from the repo root, which starts this plus the backend and frontend.
+# By hand:
+#   docker compose --env-file backend/.env up -d
+#   docker compose logs stripe-cli        # prints the whsec_... secret for STRIPE_WEBHOOK_SECRET
+#   docker compose down                   # stop (add -v to also wipe the database)
 #
-# The stripe-cli service forwards Stripe webhooks to the backend running on your machine.
-# --env-file lets Compose substitute STRIPE_SECRET_KEY from backend/.env (never committed).
-# Get the webhook secret with: docker compose -f docs/payments/docker-compose.example.yml logs stripe-cli
-name: itube-payments
+# --env-file lets Compose read STRIPE_SECRET_KEY from backend/.env (git-ignored, never committed).
+# tf_docker/ (Terraform) starts the same services on the same ports; use one or the other, not both.
+name: itube
 
 services:
   postgres:

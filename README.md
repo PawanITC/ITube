@@ -15,15 +15,58 @@ ITube/
 | Java    | 21                         | `java -version`  |
 | Node.js | 20.19+ or 22.12+ (we use 24) | `node -v`      |
 | Git     | any recent                 | `git --version`  |
+| Docker Desktop | any recent          | `docker --version` |
 
 You don't need to install Maven. The backend includes the Maven wrapper (`mvnw`), which downloads Maven automatically.
 
 ## Getting started
 
 ```bash
-git clone https://github.com/Ibraheem177/ITube.git
+git clone https://github.com/PawanITC/ITube.git
 cd ITube
 ```
+
+### Quick start (Windows): one command
+
+From the repo root, double-click **`dev.cmd`**, or run:
+
+```powershell
+.\dev.cmd
+```
+
+The script does the following:
+1. Creates `backend/.env` from `backend/.env.example` the first time, with a random playback signing key. The file is git-ignored and stays on your PC.
+2. Starts Docker Desktop if it isn't running, then PostgreSQL, Redis, Kafka, Grafana and the Stripe webhook forwarder from `docker-compose.yml`.
+3. Saves the Stripe webhook secret into `backend/.env`.
+4. Installs frontend packages if they're missing or out of date.
+5. Opens the backend in its own window and waits until it's healthy, then opens the frontend. The app opens in your browser.
+
+| Command | What it does |
+|---|---|
+| `.\dev.cmd` | Start everything |
+| `.\dev.cmd stop` | Stop everything. Your local database is kept |
+| `.\dev.cmd status` | Show what's running |
+
+When it's running:
+
+| What | Where |
+|---|---|
+| App | http://localhost:3000 |
+| Feature showcase (development only) | http://localhost:3000/demo |
+| Swagger (API docs) | http://localhost:8080/swagger-ui.html |
+| Grafana (logs, traces, metrics) | http://localhost:3080 |
+
+**Payments are optional.** Without a Stripe key everything else works, and payment endpoints return `503`. To enable them, put a Stripe **test** key (`sk_test_…` or, better, a restricted `rk_test_…`) in `STRIPE_SECRET_KEY` in `backend/.env`, then run `.\dev.cmd stop` and `.\dev.cmd` again. The script refuses to start with a live key.
+
+Good to know:
+- **The first run is slow.** It downloads the Docker images and the backend's dependencies, which can take a few minutes. Later starts take under a minute.
+- **"Port … is already allocated"** means another copy of the services is running, usually the Terraform containers from `tf_docker`. Stop those with `make down` (or in Docker Desktop) first. Use one setup or the other, not both.
+- **Something not working?** Look at the "ITube backend" and "ITube frontend" windows; errors show up there.
+- **macOS or Linux:** the script is Windows-only. Follow the manual steps below, using `docker compose --env-file backend/.env up -d` for the services.
+
+### Running things by hand
+
+Start the services first, with either `docker compose --env-file backend/.env up -d` (from the repo root) or `make up` in `tf_docker`.
 
 ### 1. Run the backend
 ```bash
@@ -43,8 +86,6 @@ npm install                   # first time, and after anyone changes package.jso
 npm run dev
 ```
 The app opens at http://localhost:3000. Changes you save reload in the browser automatically.
-
-The frontend currently uses mock data (`frontend/src/data/videos.js`), so it works without the backend running.
 
 ### IntelliJ IDEA
 Open the `ITube` folder. If IntelliJ doesn't detect the backend, right-click `backend/pom.xml` and choose **Add as Maven Project**.
@@ -96,8 +137,8 @@ Paid channel memberships use Stripe Checkout, Billing and webhooks. **Free Subsc
 
 Quick start:
 1. `cp backend/.env.example backend/.env` and add a Stripe **sandbox** key. `.env` is git-ignored: never commit keys.
-2. Run `stripe listen` (full command with the `--events` list in TESTING.md), or the `stripe-cli` service in `docs/payments/docker-compose.example.yml`, and put the printed `whsec_…` in `STRIPE_WEBHOOK_SECRET`.
-3. Start the backend and frontend as above. Without a Stripe key the app still runs, and payment endpoints return `503`.
+2. Run `.\dev.cmd`. It starts the Stripe webhook forwarder and saves the `whsec_…` secret for you. (By hand: the `stripe-cli` service in `docker-compose.yml`, or `stripe listen` with the `--events` list in TESTING.md.)
+3. Open http://localhost:3000/demo for a guided tour of the membership features.
 
 Terraform:
 
