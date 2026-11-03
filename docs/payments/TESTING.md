@@ -120,7 +120,7 @@ The code can't do these. Each needs a decision or approval from you.
 
 | Symptom | Cause / fix |
 |---|---|
-| Checkout returns `502` | Look for `Stripe call failed … requestId=req_…` in the backend log and open that request ID in the Dashboard's request logs. |
+| "The payment provider could not complete the request" | Set `STRIPE_DETAILED_ERRORS=true` in `backend/.env` (test keys only; ignored with a live key) and the app shows Stripe's actual reason. The backend log always has it: look for `Stripe call failed … message=…`, and open the `requestId` in the Dashboard's request logs. |
 | Stuck on "Confirming your payment…" | Webhooks aren't arriving. Is `stripe listen` running, and does `STRIPE_WEBHOOK_SECRET` match its output? |
 | Webhook returns `400 Invalid signature` | The secret is wrong, or something re-serialised the body. The endpoint must receive the raw bytes. |
 | `webhook_inbox` rows with `FAILED` status | Check `last_error`. After fixing the cause, set `status='RECEIVED', attempts=0, next_attempt_at=now()` to replay them. |
