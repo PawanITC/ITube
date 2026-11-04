@@ -1,0 +1,185 @@
+# Spring Boot API + FFmpeg transcode worker (Kafka consumer). One replica: uploads are stored in
+# PostgreSQL and the transcode worker is not designed to be scaled out yet.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  labels:
+    app.kubernetes.io/name: backend
+spec:
+  selector:
+    app.kubernetes.io/name: backend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels:
+    app.kubernetes.io/name: backend
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  # Recreate: never two backends at once (memory budget, Kafka consumer group, schema init)
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: backend
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Wait for the dependencies instead of crash-looping while they start (same image, bash /dev/tcp)
+        - name: wait-for-dependencies
+          image: itube-backend
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -c
+            - |
+              for target in postgres:5432 redis:6379 kafka:9092; do
+                host="${target%%:*}"; port="${target##*:}"
+                until (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null; do
+                  echo "waiting for ${target} ..."; sleep 3
+                done
+                echo "${target} is reachable"
+              done
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: backend
+          image: itube-backend
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # --- Infrastructure (in-cluster Services) ---
+            - name: DATABASE_URL
+              value: jdbc:postgresql://postgres:5432/itube
+            - name: DATABASE_USERNAME
+              value: itube
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: itube-secrets
+                  key: db-password
+            # application.properties hardcodes spring.data.redis.host=localhost; env vars take precedence
+            - name: SPRING_DATA_REDIS_HOST
+              value: redis
+            - name: SPRING_DATA_REDIS_PORT
+              value: "6379"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka:9092
+            - name: FFMPEG_PATH
+              value: ffmpeg
+            # --- App settings ---
+            # Users reach the app through `kubectl port-forward svc/frontend 3000:80`
+            - name: FRONTEND_BASE_URL
+              value: http://localhost:3000
+            - name: API_DOCS_ENABLED
+              value: "true"
+            - name: PLAYBACK_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: itube-secrets
+                  key: playback-signing-key
+            # Stripe is optional: without a key the payment endpoints return 503
+            - name: STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: itube-secrets
+                  key: stripe-secret-key
+                  optional: true
+            - name: STRIPE_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: itube-secrets
+                  key: stripe-webhook-secret
+                  optional: true
+            # --- Actuator / observability ---
+            # /actuator/health/liveness and /readiness (also auto-enabled on Kubernetes; explicit here)
+            - name: MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED
+              value: "true"
+            # No OpenTelemetry collector in this cluster: switch off the three OTLP exporters that
+            # application.properties points at http://localhost:4318 (Spring Boot 4 property names:
+            # management.otlp.metrics.export.enabled, management.tracing.export.otlp.enabled,
+            # management.logging.export.otlp.enabled). Tracing itself stays on, so trace/span ids still
+            # appear in the console logs. Remove these three once a collector exists and set the
+            # endpoint properties instead.
+            - name: MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED
+              value: "false"
+            - name: MANAGEMENT_TRACING_EXPORT_OTLP_ENABLED
+              value: "false"
+            - name: MANAGEMENT_LOGGING_EXPORT_OTLP_ENABLED
+              value: "false"
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30 # up to ~5 minutes for the first start (schema init, Kafka topics)
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            # Heap = 75% of the limit (JAVA_TOOL_OPTIONS in the image). Uploads, base64 renditions
+            # (up to 100 MB Kafka records, 256 MB producer buffer) and FFmpeg all need headroom.
+            requests:
+              cpu: 500m
+              memory: 1536Mi
+            limits:
+              cpu: 1500m
+              memory: 2560Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # Multipart uploads (up to 500 MB), Tomcat work dir and FFmpeg working files
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 3Gi

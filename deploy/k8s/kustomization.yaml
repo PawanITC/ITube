@@ -1,0 +1,30 @@
+# ITube on EKS (dev). Render with:  kubectl kustomize deploy/k8s
+# The namespace `itube` is created by the infra pipeline; nothing cluster-scoped lives here.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: itube
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: itube
+    includeSelectors: false
+
+resources:
+  - postgres.yaml
+  - redis.yaml
+  - kafka.yaml
+  - backend.yaml
+  - frontend.yaml
+
+# Placeholders: the GitHub Actions workflow runs
+#   kustomize edit set image itube-backend=<ecr>/eks-lab/itube-backend:<git sha>
+#   kustomize edit set image itube-frontend=<ecr>/eks-lab/itube-frontend:<git sha>
+# before `kubectl apply -k`. The Secret `itube-secrets` is created by the workflow, not by kustomize.
+images:
+  - name: itube-backend
+    newName: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-backend
+    newTag: latest
+  - name: itube-frontend
+    newName: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-frontend
+    newTag: latest
