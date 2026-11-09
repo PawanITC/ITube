@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../k8s
+# The base has already renamed the images to their ECR names, so match on those.
+images:
+  - name: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-backend
+    newName: itube-backend
+    newTag: local
+  - name: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-frontend
+    newName: itube-frontend
+    newTag: local
+patches:
+  - target: { kind: StatefulSet }
+    patch: |
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/storageClassName
+        value: hostpath
