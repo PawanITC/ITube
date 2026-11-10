@@ -1,4 +1,5 @@
-/mvnw text eol=lf
+mvnw text eol=lf
+*.properties text eol=lf
 *.cmd text eol=crlf
 
 # PowerShell scripts keep CRLF line endings, like the .cmd files

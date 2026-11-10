@@ -59,6 +59,40 @@ public class VideoController {
         return videoService.getVideos();
     }
 
+    /** Videos on the signed-in user's channels, including unlisted and private ones. */
+    @GetMapping("/api/videos/mine")
+    public List<VideoSummaryDto> listMyVideos(HttpSession session) {
+        return videoService.getVideosOwnedBy(CurrentUser.require(session));
+    }
+
+    @GetMapping("/api/videos/mine/{videoId}")
+    public VideoSummaryDto getMyVideo(@PathVariable Long videoId, HttpSession session) {
+        return videoService.getOwnedVideo(videoId, CurrentUser.require(session));
+    }
+
+    @PutMapping(path = "/api/videos/{videoId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public VideoSummaryDto updateVideo(
+            @PathVariable Long videoId,
+            @RequestParam("title") String title,
+            @RequestParam(value = "visibility", defaultValue = "PUBLIC") VideoVisibility visibility,
+            @RequestParam(value = "requiredTierLevel", required = false) Integer requiredTierLevel,
+            @RequestParam(value = "thumbnail", required = false) MultipartFile thumbnail,
+            HttpSession session) throws IOException {
+        Long userId = CurrentUser.require(session);
+        boolean hasThumbnail = thumbnail != null && !thumbnail.isEmpty();
+        if (hasThumbnail && (thumbnail.getContentType() == null || !thumbnail.getContentType().startsWith("image/"))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The thumbnail must be an image");
+        }
+        return videoService.updateVideoDetails(videoId, userId, title, visibility, requiredTierLevel,
+                hasThumbnail ? thumbnail.getBytes() : null, hasThumbnail ? thumbnail.getContentType() : null);
+    }
+
+    @DeleteMapping("/api/videos/{videoId}")
+    public ResponseEntity<Void> deleteVideo(@PathVariable Long videoId, HttpSession session) {
+        videoService.deleteVideo(videoId, CurrentUser.require(session));
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/api/videos/{videoId}/qualities")
     public List<String> getQualities(@PathVariable Long videoId) {
         return videoService.getQualities(videoId);

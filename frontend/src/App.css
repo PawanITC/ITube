@@ -277,3 +277,19 @@
   .modal { padding: 20px 16px; }
   .watch-channel-row { gap: 10px; }
 }
+
+/* My Videos */
+.my-videos-heading { margin: 0 0 24px; font-size: 24px; }
+.visibility-badge { position: absolute; top: 8px; left: 8px; padding: 3px 7px; border-radius: 4px; background: rgba(0,0,0,.75); color: #fff; font-size: 12px; font-weight: 600; }
+.visibility-badge.visibility-members_only { background: #2ba640; }
+.edit-video-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 16px; }
+.edit-video-actions .upload-submit { margin-top: 0; }
+.edit-video-delete { border: 1px solid #b3261e; border-radius: 20px; padding: 9px 18px; background: #fff; color: #b3261e; font: inherit; font-weight: 600; cursor: pointer; }
+.edit-video-delete:hover { background: #fdecea; }
+.edit-video-confirm .edit-video-delete { background: #b3261e; color: #fff; }
+.edit-video-confirm .edit-video-delete:hover { background: #8c1d18; }
+.edit-video-delete:disabled, .edit-video-cancel:disabled { opacity: .55; cursor: wait; }
+.edit-video-cancel { margin-left: auto; border: 0; border-radius: 20px; padding: 10px 18px; background: #f2f2f2; font: inherit; font-weight: 600; cursor: pointer; }
+.edit-video-confirm { margin-top: 16px; padding: 16px; border: 1px solid #f1c4c0; border-radius: 12px; background: #fff8f7; }
+.edit-video-confirm p { margin: 0; font-size: 14px; line-height: 1.45; }
+.upload-thumbnail-preview { width: 100%; max-width: 320px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 10px; background: #e5e5e5; }

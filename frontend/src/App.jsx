@@ -4,6 +4,8 @@ import History from './pages/History';
 import Sidebar from './components/Sidebar';
 import VideoGrid from './components/Video/VideoGrid';
 import UploadVideoPage from './components/Video/UploadVideoPage';
+import MyVideosPage from './components/Video/MyVideosPage';
+import EditVideoPage from './components/Video/EditVideoPage';
 import WatchPage from './components/Video/WatchPage';
 import ChannelGrid from './components/Channel/ChannelGrid';
 import ChannelPage from './components/Channel/ChannelPage';
@@ -21,6 +23,9 @@ function readRoute() {
   if (watchMatch) return { page: 'watch', videoId: Number(watchMatch[1]) };
   const channelMatch = window.location.pathname.match(/^\/channel\/(\d+)$/);
   if (channelMatch) return { page: 'channel', channelId: Number(channelMatch[1]) };
+  if (window.location.pathname === '/my-videos') return { page: 'my-videos' };
+  const editMatch = window.location.pathname.match(/^\/my-videos\/(\d+)$/);
+  if (editMatch) return { page: 'edit-video', videoId: Number(editMatch[1]) };
   if (window.location.pathname === '/upload') return { page: 'upload', videoId: null };
   if (window.location.pathname === '/memberships') return { page: 'memberships' };
   if (window.location.pathname === '/memberships/checkout-complete') return { page: 'checkout-complete' };
@@ -41,8 +46,18 @@ function App() {
   const [channelsLoading, setChannelsLoading] = useState(false);
   const [channelsError, setChannelsError] = useState('');
 
+  // Restore an existing server session after a page reload so signed-in-only UI (like My Videos) shows.
   useEffect(() => {
-    if (route.page === 'upload' || route.page === 'history') return;
+    let cancelled = false;
+    fetch('/api/session/current', { credentials: 'include' })
+      .then(response => (response.ok ? response.json() : null))
+      .then(current => { if (!cancelled && current) setActiveSession(existing => existing ?? current); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (['upload', 'history', 'my-videos', 'edit-video'].includes(route.page)) return;
     let cancelled = false;
     setVideosLoading(true);
     fetch('/api/videos')
@@ -127,6 +142,16 @@ function App() {
     setRoute({ page: 'history' });
   }
 
+  function openMyVideos() {
+    window.history.pushState({}, '', '/my-videos');
+    setRoute({ page: 'my-videos' });
+  }
+
+  function openEditVideo(videoId) {
+    window.history.pushState({}, '', `/my-videos/${videoId}`);
+    setRoute({ page: 'edit-video', videoId });
+  }
+
   function openMemberships() {
     window.history.pushState({}, '', '/memberships');
     setRoute({ page: 'memberships' });
@@ -142,6 +167,8 @@ function App() {
       <Header onSearch={handleSearch} onCreatePage={openUploadPage} onSessionStarted={setActiveSession} onSelectChannel={openChannel} />
       {route.page === 'upload' ? (
         <main className="upload-main"><UploadVideoPage session={uploadSession} onCancel={returnHome} /></main>
+      ) : route.page === 'edit-video' ? (
+        <main className="upload-main"><EditVideoPage key={route.videoId} videoId={route.videoId} onBack={openMyVideos} onDeleted={openMyVideos} /></main>
       ) : route.page === 'watch' ? (
         <WatchPage videoId={route.videoId} videos={videos} videosLoading={videosLoading} videosError={videosError} session={activeSession} onSelectVideo={openVideo} onSelectChannel={openChannel} onHome={returnHome} onOpenMemberships={openMemberships} />
       ) : route.page === 'memberships' ? (
@@ -153,7 +180,7 @@ function App() {
       ) : route.page === 'channel' ? (
         <ChannelPage channelId={route.channelId} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} onOpenMemberships={openMemberships} />
       ) : (
-        <><Sidebar activePage={route.page === 'history' ? 'History' : 'Home'} onOpenHistory={openHistory} onHome={returnHome} session={activeSession} onSelectChannel={openChannel} onOpenMemberships={openMemberships} /><main className="main-content"><nav className="mobile-library-nav" aria-label="Mobile library"><a href="/" onClick={event => { event.preventDefault(); returnHome(); }} aria-current={route.page === 'home' ? 'page' : undefined}>Home</a><a href="/history" onClick={event => { event.preventDefault(); openHistory(); }} aria-current={route.page === 'history' ? 'page' : undefined}>History</a></nav>{route.page === 'history' ? <History onHome={returnHome} /> : <div className="feed-content">{searchMode === 'channels' ? <ChannelGrid channels={channelResults} loading={channelsLoading} error={channelsError} query={search} onSelectChannel={openChannel} /> : <VideoGrid videos={visibleVideos} loading={videosLoading} error={videosError} onSelectVideo={openVideo} onSelectChannel={openChannel} />}</div>}</main></>
+        <><Sidebar activePage={route.page === 'history' ? 'History' : route.page === 'my-videos' ? 'My Videos' : 'Home'} onOpenHistory={openHistory} onOpenMyVideos={openMyVideos} onHome={returnHome} session={activeSession} onSelectChannel={openChannel} onOpenMemberships={openMemberships} /><main className="main-content"><nav className="mobile-library-nav" aria-label="Mobile library"><a href="/" onClick={event => { event.preventDefault(); returnHome(); }} aria-current={route.page === 'home' ? 'page' : undefined}>Home</a><a href="/history" onClick={event => { event.preventDefault(); openHistory(); }} aria-current={route.page === 'history' ? 'page' : undefined}>History</a>{activeSession && <a href="/my-videos" onClick={event => { event.preventDefault(); openMyVideos(); }} aria-current={route.page === 'my-videos' ? 'page' : undefined}>My Videos</a>}</nav>{route.page === 'history' ? <History onHome={returnHome} /> : route.page === 'my-videos' ? <MyVideosPage onEditVideo={openEditVideo} /> : <div className="feed-content">{searchMode === 'channels' ? <ChannelGrid channels={channelResults} loading={channelsLoading} error={channelsError} query={search} onSelectChannel={openChannel} /> : <VideoGrid videos={visibleVideos} loading={videosLoading} error={videosError} onSelectVideo={openVideo} onSelectChannel={openChannel} />}</div>}</main></>
       )}
     </div>
   );
