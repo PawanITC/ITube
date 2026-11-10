@@ -73,7 +73,8 @@ select another account's records. MockMvc sessions avoid requiring Redis for the
 - History uses the existing session identity. The authentication developer can
   replace development sessions through the shared CurrentUser helper later.
 - Integrate video existence checks and agree the video ID type with the video developer.
-  Titles/thumbnails can be added to response DTOs when video data is available.
+  History responses now include current video metadata; video-existence checks on
+  recording can be integrated separately.
 - PostgreSQL now follows the shared `DATABASE_URL`, `DATABASE_USERNAME`, and
   `DATABASE_PASSWORD` configuration. History adds `schema-history.sql` to the team's
   SQL initialization list and preserves Hibernate's shared `ddl-auto=validate` setting.
@@ -109,9 +110,13 @@ Run the backend, then run `npm run dev` from `frontend`. Open
 Vite proxies the API calls to port 8080, following the team's defaults.
 
 The page loads real API entries with watch times, paging, refresh, removal, and
-confirmation before clearing all history. Video titles, thumbnails, and playback
-remain integration work for History, so entries display their video IDs. The team's
-new video, channel, upload, and membership pages are preserved by the merge.
+confirmation before clearing all history. Responses include a nullable `video`
+field using the existing VideoSummaryDto: title, channel, thumbnail URL, and playback
+metadata. The thumbnail URL is the same endpoint used by the feed and watch player.
+Clicking a thumbnail or title uses App's existing watch route with that video's ID
+and metadata, including unlisted videos outside the public feed. The existing player
+still checks playback authorisation. Missing or another owner's private videos expose
+no playable metadata, but their History rows remain removable.
 
 Start a session through the existing header before watching. The History client
 sends the session cookie and no longer uses VITE_HISTORY_USER_ID or user-123.
@@ -148,3 +153,12 @@ WatchPage.history.test.jsx exercises actual player events with simulated HTTP,
 including pending-request deduplication and failed-write isolation. HistoryApiTests
 checks the existing service/repository via the updated session-authenticated
 controller, including spoofed userId parameters and per-user deletion/clearing.
+
+## Current thumbnails and replay
+
+HistoryResponse keeps id, videoId and watchedAt, and adds nullable video metadata.
+HistoryService loads one page of records and fetches the current video summaries in
+one additional query for that page, rather than fetching large video/thumbnail bytes
+or querying each row individually. This also means a title/thumbnail edit is reflected
+on the next History refresh. Videos with no thumbnail use the same placeholder as
+the feed. No database table or teammate video endpoint was changed.

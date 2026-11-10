@@ -2,6 +2,11 @@ package ITubeBackend;
 
 import ITubeBackend.controller.HistoryController;
 import ITubeBackend.entities.WatchHistory;
+import ITubeBackend.entities.AccountEntity;
+import ITubeBackend.entities.ChannelEntity;
+import ITubeBackend.entities.VideoEntity;
+import ITubeBackend.entities.VideoVisibility;
+import jakarta.persistence.EntityManager;
 import ITubeBackend.repository.HistoryRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,6 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
+import java.time.LocalTime;
+import java.util.UUID;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -27,6 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class HistoryApiTests {
     @Autowired private HistoryController controller;
     @Autowired private HistoryRepository repository;
+    @Autowired private EntityManager entityManager;
     private MockMvc mvc;
     private MockHttpSession viewer;
     private MockHttpSession other;
@@ -36,6 +44,52 @@ class HistoryApiTests {
         mvc = MockMvcBuilders.standaloneSetup(controller).build();
         viewer = session(901L);
         other = session(902L);
+    }
+
+    @Test
+    void historyReturnsRealVideoMetadataAndReflectsThumbnailChanges() throws Exception {
+        var fixture = video(VideoVisibility.PUBLIC, true);
+        long videoId = fixture.video().getVideoId();
+        add(viewer, videoId);
+        mvc.perform(get("/api/history").session(viewer)).andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].videoId").value(videoId))
+                .andExpect(jsonPath("$[0].video.videoId").value(videoId))
+                .andExpect(jsonPath("$[0].video.title").value("A real watched video"))
+                .andExpect(jsonPath("$[0].video.channelName").value("History test channel"))
+                .andExpect(jsonPath("$[0].video.thumbnailUrl").value("/api/videos/" + videoId + "/thumbnail"));
+        fixture.video().setTitle("Updated title");
+        fixture.video().setThumbnail(null);
+        entityManager.flush();
+        mvc.perform(get("/api/history").session(viewer))
+                .andExpect(jsonPath("$[0].video.title").value("Updated title"))
+                .andExpect(jsonPath("$[0].video.thumbnailUrl").isEmpty());
+    }
+
+    @Test
+    void privateMetadataIsOnlyVisibleToTheOwnerAndMissingVideosStayRemovable() throws Exception {
+        var fixture = video(VideoVisibility.PRIVATE, true);
+        add(viewer, fixture.video().getVideoId());
+        add(viewer, Long.MAX_VALUE);
+        mvc.perform(get("/api/history").session(viewer)).andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].video").isEmpty()).andExpect(jsonPath("$[1].video").isEmpty());
+        var owner = session(fixture.ownerId());
+        add(owner, fixture.video().getVideoId());
+        mvc.perform(get("/api/history").session(owner))
+                .andExpect(jsonPath("$[0].video.title").value("A real watched video"))
+                .andExpect(jsonPath("$[0].video.videoUrl").isEmpty());
+    }
+
+    @Test
+    void unlistedAndMembersOnlyMetadataUseTheExistingPlaybackRules() throws Exception {
+        var unlisted = video(VideoVisibility.UNLISTED, false);
+        var members = video(VideoVisibility.MEMBERS_ONLY, true);
+        add(viewer, unlisted.video().getVideoId());
+        add(viewer, members.video().getVideoId());
+        mvc.perform(get("/api/history").session(viewer))
+                .andExpect(jsonPath("$[0].video.visibility").value("MEMBERS_ONLY"))
+                .andExpect(jsonPath("$[0].video.videoUrl").isEmpty())
+                .andExpect(jsonPath("$[1].video.visibility").value("UNLISTED"))
+                .andExpect(jsonPath("$[1].video.videoUrl").value("/api/videos/" + unlisted.video().getVideoId() + "/file"));
     }
 
     @Test
@@ -130,5 +184,33 @@ class HistoryApiTests {
         MockHttpSession session = new MockHttpSession();
         session.setAttribute("userId", userId);
         return session;
+    }
+
+    private record HistoryVideoFixture(VideoEntity video, Long ownerId) {}
+
+    private HistoryVideoFixture video(VideoVisibility visibility, boolean thumbnail) {
+        AccountEntity owner = new AccountEntity();
+        owner.setFirstname("History");
+        owner.setLastname("Test");
+        owner.setEmail(UUID.randomUUID() + "@example.com");
+        owner.setPasswordHash("unused-test-hash");
+        entityManager.persist(owner);
+        Long ownerId = (Long) entityManager.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(owner);
+        ChannelEntity channel = new ChannelEntity();
+        channel.setUser(owner);
+        channel.setChannelName("History test channel");
+        entityManager.persist(channel);
+        VideoEntity video = new VideoEntity();
+        video.setChannel(channel);
+        video.setTitle("A real watched video");
+        video.setVideo(new byte[]{1});
+        video.setVideoContentType("video/mp4");
+        video.setDuration(LocalTime.of(0, 1));
+        video.setVisibility(visibility);
+        if (visibility == VideoVisibility.MEMBERS_ONLY) video.setRequiredTierLevel(1);
+        if (thumbnail) { video.setThumbnail(new byte[]{1}); video.setThumbnailContentType("image/png"); }
+        entityManager.persist(video);
+        entityManager.flush();
+        return new HistoryVideoFixture(video, ownerId);
     }
 }
