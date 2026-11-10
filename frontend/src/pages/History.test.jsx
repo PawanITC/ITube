@@ -13,10 +13,10 @@ test('loads history from the API and removes an entry by history ID', async () =
   render(<History />);
   expect(screen.getByText('Loading your history…')).toBeInTheDocument();
   expect(await screen.findByRole('heading', { name: 'Video 26' })).toBeInTheDocument();
-  expect(fetch.mock.calls[0][0]).toContain('/api/history?userId=user-123&page=0&size=20');
+  expect(fetch.mock.calls[0][0]).toContain('/api/history?page=0&size=20');
   fireEvent.click(screen.getByRole('button', { name: 'Remove video 26 from history' }));
   expect(await screen.findByText('Your story starts here')).toBeInTheDocument();
-  expect(fetch.mock.calls[1][0]).toBe('/api/history/1?userId=user-123');
+  expect(fetch.mock.calls[1][0]).toBe('/api/history/1');
   expect(fetch.mock.calls[1][1].method).toBe('DELETE');
 });
 
@@ -31,7 +31,7 @@ test('asks for confirmation before clearing history and allows cancellation', as
   fireEvent.click(screen.getByRole('button', { name: 'Clear all history' }));
   fireEvent.click(screen.getByRole('button', { name: 'Confirm clear all' }));
   expect(await screen.findByText('Your story starts here')).toBeInTheDocument();
-  expect(fetch.mock.calls[1][0]).toBe('/api/history?userId=user-123');
+  expect(fetch.mock.calls[1][0]).toBe('/api/history');
   expect(fetch.mock.calls[1][1].method).toBe('DELETE');
 });
 

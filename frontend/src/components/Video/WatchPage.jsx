@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '../Icon.jsx';
+import { recordWatch } from '../../api/history';
 import VideoCard from './VideoCard.jsx';
 import JoinButton from '../Membership/JoinButton.jsx';
 
@@ -58,9 +59,28 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
   const playerWrapRef = useRef(null);
   const playbackRef = useRef(null);
   const lastTokenRefreshRef = useRef(0);
+  const historyAttempt = useRef(null);
   const [processingStatus, setProcessingStatus] = useState('PROCESSING');
   const video = useMemo(() => videos.find(item => item.videoId === videoId), [videos, videoId]);
   const recommendations = useMemo(() => videos.filter(item => item.videoId !== videoId), [videos, videoId]);
+
+  useEffect(() => {
+    // A new video visit or account starts a new viewing session. Quality changes do not.
+    historyAttempt.current = null;
+  }, [videoId, session?.userId]);
+
+  function recordPlaybackHistory() {
+    // "playing" fires when playback really starts, including autoplay; not on loading the page.
+    // Guard against repeated resume/buffering events and stale authorisation from the previous video.
+    if (!playback?.allowed || playback.videoId !== videoId || historyAttempt.current) return;
+    const attempt = {};
+    historyAttempt.current = attempt;
+    recordWatch(videoId).catch(error => {
+      // History is best-effort: never interrupt playback. A later playing event may retry a failure.
+      if (historyAttempt.current === attempt) historyAttempt.current = null;
+      if (error.status !== 401) console.warn('Unable to save watch history.', error);
+    });
+  }
 
   useEffect(() => {
     const updateFullscreen = () => setIsFullscreen(document.fullscreenElement === playerWrapRef.current);
@@ -249,7 +269,7 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
               </div>
             ) : (
             <div ref={playerWrapRef} className={`watch-player-wrap${theaterMode ? ' is-theater' : ''}`}>
-              <video ref={videoRef} className="watch-player" src={selectedQuality === 'source' ? playback.sourceUrl : `/api/videos/${videoId}/renditions/${selectedQuality}${tokenQuery}`} onClick={togglePlayback} onLoadedMetadata={event => { setDuration(event.currentTarget.duration); setCurrentTime(event.currentTarget.currentTime); restorePlayback(); }} onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)} onDurationChange={event => setDuration(event.currentTarget.duration)} onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onVolumeChange={event => { setVolume(event.currentTarget.volume); setIsMuted(event.currentTarget.muted); }} onEnded={() => setIsPlaying(false)} onError={recoverFromPlaybackError} onRateChange={event => setPlaybackRate(event.currentTarget.playbackRate)} poster={video.thumbnailUrl || undefined} autoPlay playsInline />
+              <video ref={videoRef} className="watch-player" src={selectedQuality === 'source' ? playback.sourceUrl : `/api/videos/${videoId}/renditions/${selectedQuality}${tokenQuery}`} onClick={togglePlayback} onLoadedMetadata={event => { setDuration(event.currentTarget.duration); setCurrentTime(event.currentTarget.currentTime); restorePlayback(); }} onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)} onDurationChange={event => setDuration(event.currentTarget.duration)} onPlay={() => setIsPlaying(true)} onPlaying={recordPlaybackHistory} onPause={() => setIsPlaying(false)} onVolumeChange={event => { setVolume(event.currentTarget.volume); setIsMuted(event.currentTarget.muted); }} onEnded={() => setIsPlaying(false)} onError={recoverFromPlaybackError} onRateChange={event => setPlaybackRate(event.currentTarget.playbackRate)} poster={video.thumbnailUrl || undefined} autoPlay playsInline />
               {!isPlaying && <button type="button" className="watch-center-play" aria-label="Play video" onClick={togglePlayback}><Icon name="play" size={34} /></button>}
               <div className="watch-controls">
                 <input className="watch-seek" type="range" min="0" max={duration || 0} step="0.1" value={Math.min(currentTime, duration || 0)} aria-label="Seek video" style={{ '--seek-progress': `${duration ? (currentTime / duration) * 100 : 0}%` }} onChange={event => { if (videoRef.current) videoRef.current.currentTime = Number(event.target.value); }} />
