@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '../Icon.jsx';
+import LikeButton from '../LikedVideos/LikeButton';
 import VideoCard from './VideoCard.jsx';
 import JoinButton from '../Membership/JoinButton.jsx';
 
@@ -289,6 +290,7 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
             <div className="watch-channel-row">
               <a className="watch-channel" href={`/channel/${video.channelId}`} onClick={event => { event.preventDefault(); onSelectChannel(video.channelId); }}>{video.channelName}</a>
               <JoinButton channelId={video.channelId} onOpenMemberships={onOpenMemberships} />
+              <LikeButton key={`${videoId}:${session?.userId || 'current'}`} videoId={videoId} />
             </div>
 
             <section className="comments-section" aria-labelledby="comments-heading">
