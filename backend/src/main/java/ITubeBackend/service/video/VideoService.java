@@ -11,6 +11,7 @@ import ITubeBackend.entities.ChannelEntity;
 import ITubeBackend.entities.VideoEntity;
 import ITubeBackend.entities.VideoVisibility;
 import ITubeBackend.repository.ChannelRepository;
+import ITubeBackend.repository.HistoryRepository;
 import ITubeBackend.repository.VideoRepository;
 import ITubeBackend.service.entitlement.EntitlementService;
 import ITubeBackend.service.entitlement.PlaybackTokenService;
@@ -30,14 +31,17 @@ public class VideoService {
     private static final long MAX_CHUNK_BYTES = 4L * 1024 * 1024;
     private final ChannelRepository channelRepository;
     private final VideoRepository videoRepository;
+    private final HistoryRepository historyRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final EntitlementService entitlementService;
     private final PlaybackTokenService playbackTokenService;
 
-    public VideoService(ChannelRepository channelRepository, VideoRepository videoRepository, ApplicationEventPublisher eventPublisher,
-                        EntitlementService entitlementService, PlaybackTokenService playbackTokenService) {
+    public VideoService(ChannelRepository channelRepository, VideoRepository videoRepository, HistoryRepository historyRepository,
+                        ApplicationEventPublisher eventPublisher, EntitlementService entitlementService,
+                        PlaybackTokenService playbackTokenService) {
         this.channelRepository = channelRepository;
         this.videoRepository = videoRepository;
+        this.historyRepository = historyRepository;
         this.eventPublisher = eventPublisher;
         this.entitlementService = entitlementService;
         this.playbackTokenService = playbackTokenService;
@@ -131,6 +135,58 @@ public class VideoService {
         VideoEntity video = videoRepository.findById(videoId).orElseThrow();
         video.setVisibility(visibility);
         video.setRequiredTierLevel(visibility == VideoVisibility.MEMBERS_ONLY ? requiredTierLevel : null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<VideoSummaryDto> getVideosOwnedBy(Long userId) {
+        return videoRepository.findVideoSummariesByOwner(userId);
+    }
+
+    @Transactional(readOnly = true)
+    public VideoSummaryDto getOwnedVideo(Long videoId, Long userId) {
+        requireOwner(videoId, userId);
+        return videoRepository.findVideoSummaryForOwner(videoId, userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Video not found"));
+    }
+
+    /** Owner-only edit of the video's details. A null thumbnail keeps the current one. */
+    @Transactional
+    public VideoSummaryDto updateVideoDetails(Long videoId, Long userId, String title, VideoVisibility visibility,
+                                              Integer requiredTierLevel, byte[] thumbnail, String thumbnailContentType) {
+        requireOwner(videoId, userId);
+        if (title == null || title.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Video title is required");
+        }
+        if (title.trim().length() > 255) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Video title must be 255 characters or fewer");
+        }
+        VideoVisibility newVisibility = visibility == null ? VideoVisibility.PUBLIC : visibility;
+        validateTierLevel(newVisibility, requiredTierLevel);
+        VideoEntity video = videoRepository.findById(videoId).orElseThrow();
+        video.setTitle(title.trim());
+        video.setVisibility(newVisibility);
+        video.setRequiredTierLevel(newVisibility == VideoVisibility.MEMBERS_ONLY ? requiredTierLevel : null);
+        if (thumbnail != null && thumbnail.length > 0) {
+            video.setThumbnail(thumbnail);
+            video.setThumbnailContentType(thumbnailContentType);
+        }
+        videoRepository.flush();
+        return videoRepository.findVideoSummaryForOwner(videoId, userId).orElseThrow();
+    }
+
+    @Transactional
+    public void deleteVideo(Long videoId, Long userId) {
+        requireOwner(videoId, userId);
+        historyRepository.deleteByVideoId(videoId);
+        videoRepository.deleteVideoById(videoId);
+    }
+
+    private void requireOwner(Long videoId, Long userId) {
+        VideoAccessDto access = requireAccess(videoId);
+        if (!access.ownerUserId().equals(userId)) {
+            // Don't reveal that someone else's private video exists
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Video not found");
+        }
     }
 
     private VideoAccessDto requireAccess(Long videoId) {

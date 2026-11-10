@@ -9,6 +9,7 @@ import ITubeBackend.entities.VideoVisibility;
 import ITubeBackend.repository.ChannelMembershipRepository;
 import ITubeBackend.repository.ChannelMembershipTierRepository;
 import ITubeBackend.repository.ChannelRepository;
+import ITubeBackend.repository.HistoryRepository;
 import ITubeBackend.repository.VideoRepository;
 import ITubeBackend.service.entitlement.EntitlementService;
 import ITubeBackend.service.entitlement.MembershipAccessPolicy;
@@ -49,7 +50,7 @@ class MembersOnlyPlaybackTest {
                 new MembershipAccessPolicy(paymentProperties(true), CLOCK));
         PlaybackTokenService tokens = new PlaybackTokenService(
                 new PlaybackProperties(Base64.getEncoder().encodeToString(new byte[32]), Duration.ofMinutes(10), Duration.ofHours(6)), CLOCK);
-        videoService = new VideoService(mock(ChannelRepository.class), videoRepository,
+        videoService = new VideoService(mock(ChannelRepository.class), videoRepository, mock(HistoryRepository.class),
                 mock(ApplicationEventPublisher.class), entitlement, tokens);
         video(1L, VideoVisibility.PUBLIC, null);
         video(2L, VideoVisibility.MEMBERS_ONLY, null);

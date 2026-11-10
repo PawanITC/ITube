@@ -25,6 +25,20 @@ public interface VideoRepository extends JpaRepository<VideoEntity, Long> {
     List<VideoSummaryDto> findVideoSummariesByChannelId(@Param("channelId") Long channelId,
                                                         @Param("includeHidden") boolean includeHidden);
 
+    /** Every video on channels owned by the user, including unlisted and private ones. */
+    @Query("select new ITubeBackend.dto.video.VideoSummaryDto(v.videoId, v.channel.channelId, v.title, v.channel.channelName, v.duration, case when v.thumbnail is null then false else true end, v.processingStatus, v.visibility, v.requiredTierLevel) " +
+            "from VideoEntity v where v.channel.user.userId = :userId order by v.videoId desc")
+    List<VideoSummaryDto> findVideoSummariesByOwner(@Param("userId") Long userId);
+
+    @Query("select new ITubeBackend.dto.video.VideoSummaryDto(v.videoId, v.channel.channelId, v.title, v.channel.channelName, v.duration, case when v.thumbnail is null then false else true end, v.processingStatus, v.visibility, v.requiredTierLevel) " +
+            "from VideoEntity v where v.videoId = :videoId and v.channel.user.userId = :userId")
+    Optional<VideoSummaryDto> findVideoSummaryForOwner(@Param("videoId") Long videoId, @Param("userId") Long userId);
+
+    // Bulk delete so the video bytes are never loaded; renditions and comments go with it via ON DELETE CASCADE
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("delete from VideoEntity v where v.videoId = :videoId")
+    int deleteVideoById(@Param("videoId") Long videoId);
+
     @Query("select new ITubeBackend.dto.video.VideoAccessDto(v.videoId, v.channel.channelId, v.channel.user.userId, v.visibility, v.requiredTierLevel, v.duration) " +
             "from VideoEntity v where v.videoId = :videoId")
     Optional<VideoAccessDto> findAccess(@Param("videoId") Long videoId);

@@ -1,0 +1,151 @@
+# Terraform for infra/envs/dev: plan on pull requests (posted as a comment), apply on master.
+# One-time setup (bootstrap, environment dev, variables): see infra/README.md.
+name: Terraform (dev)
+
+on:
+  pull_request:
+    paths:
+      - infra/envs/**
+      - infra/modules/**
+      - .github/workflows/terraform.yml
+  push:
+    branches: [master]
+    paths:
+      - infra/envs/**
+      - infra/modules/**
+      - .github/workflows/terraform.yml
+  workflow_dispatch:
+
+permissions:
+  id-token: write # GitHub OIDC -> AWS IAM role, no long-lived AWS keys
+  contents: read
+
+# Never two runs against the same state (the S3 lock would make the second one fail anyway)
+concurrency:
+  group: terraform-dev
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-west-2
+  TF_VERSION: 1.16.6
+  TF_DIR: infra/envs/dev
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+jobs:
+  plan:
+    name: Plan
+    if: github.event_name == 'pull_request'
+    # Pull requests from forks get no OIDC token, so they can't plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write # plan comment
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required configuration
+        env:
+          ROLE: ${{ vars.AWS_TERRAFORM_PLAN_ROLE_ARN }}
+        run: |
+          if [ -z "${ROLE}" ]; then
+            echo "::error title=Missing variable::Set the repository variable AWS_TERRAFORM_PLAN_ROLE_ARN (output plan_role_arn of infra/bootstrap). See infra/README.md."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials (OIDC, read-only role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_PLAN_ROLE_ARN }}
+          role-session-name: itube-tf-plan-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Format check
+        run: terraform fmt -check -recursive infra
+
+      - name: Init
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init
+
+      - name: Validate
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform validate -no-color
+
+      - name: Plan
+        id: plan
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform plan -no-color -out=tfplan
+          terraform show -no-color tfplan > plan.txt
+
+      - name: Comment the plan on the pull request
+        if: always() && steps.plan.outcome != 'skipped'
+        uses: actions/github-script@v7
+        env:
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = `${process.env.TF_DIR}/plan.txt`;
+            let plan = fs.existsSync(path) ? fs.readFileSync(path, 'utf8') : 'Plan failed: see the workflow log.';
+            const limit = 60000; // GitHub comments max out at 65536 characters
+            if (plan.length > limit) plan = plan.slice(0, limit) + '\n... (truncated, full plan in the workflow log)';
+            const marker = '<!-- terraform-plan-dev -->';
+            const body = `${marker}\n### Terraform plan (dev): ${process.env.PLAN_OUTCOME}\n\n<details><summary>Show plan</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>\n\n[Workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`;
+            // Update the previous plan comment instead of adding a new one on every push
+            const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: context.issue.number, per_page: 100 });
+            const previous = comments.find(c => c.body && c.body.startsWith(marker));
+            if (previous) await github.rest.issues.updateComment({ ...context.repo, comment_id: previous.id, body });
+            else await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+
+  apply:
+    name: Apply
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Required: the apply role only trusts this environment (shared with the EKS deploy). If it has required
+    # reviewers, the job waits for an approval before it starts; reviewers check the plan comment on the PR.
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required configuration
+        env:
+          ROLE: ${{ vars.AWS_TERRAFORM_APPLY_ROLE_ARN }}
+        run: |
+          if [ -z "${ROLE}" ]; then
+            echo "::error title=Missing variable::Set the variable AWS_TERRAFORM_APPLY_ROLE_ARN (environment dev; output apply_role_arn of infra/bootstrap). See infra/README.md."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials (OIDC, apply role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_APPLY_ROLE_ARN }}
+          role-session-name: itube-tf-apply-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Init
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init
+
+      - name: Plan
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform plan -no-color -out=tfplan
+
+      # Applies exactly the plan above, nothing that changed in between
+      - name: Apply
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform apply -no-color tfplan

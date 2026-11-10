@@ -8,7 +8,7 @@ function NavLink({ icon, children, active = false, onNavigate }) {
   return <a href={`#${children.toLowerCase().replaceAll(' ', '-')}`} onClick={onNavigate ? event => { event.preventDefault(); onNavigate(); } : undefined} aria-current={active ? 'page' : undefined} aria-label={children} className={`nav-link${active ? ' active' : ''}`}><Icon name={icon} size={22} /><span>{children}</span></a>;
 }
 
-export default function Sidebar({ session, onSelectChannel, onOpenMemberships, activePage = 'Home', onOpenHistory, onHome }) {
+export default function Sidebar({ session, onSelectChannel, onOpenMemberships, activePage = 'Home', onOpenHistory, onOpenMyVideos, onHome }) {
   const [subscriptions, setSubscriptions] = useState([]);
   const [loadingSubscriptions, setLoadingSubscriptions] = useState(true);
 
@@ -27,7 +27,7 @@ export default function Sidebar({ session, onSelectChannel, onOpenMemberships, a
     <aside className="sidebar">
       <nav>
         <div className="nav-group">{primary.map(([icon, label]) => <NavLink key={label} icon={icon} active={label === activePage} onNavigate={label === 'Home' ? onHome : undefined}>{label}</NavLink>)}</div>
-        <div className="nav-group library-group"><div className="nav-heading">You <span>›</span></div>{library.map(([icon, label]) => <NavLink key={label} icon={icon} active={label === activePage} onNavigate={label === 'History' ? onOpenHistory : undefined}>{label}</NavLink>)}{import.meta.env.DEV && <a href="/demo" className="nav-link" title="Development only"><Icon name="play" size={22} /><span>Feature showcase</span></a>}<a href="/memberships" className="nav-link" onClick={event => { event.preventDefault(); onOpenMemberships?.(); }}><Icon name="liked" size={22} /><span>Memberships</span></a></div>
+        <div className="nav-group library-group"><div className="nav-heading">You <span>›</span></div>{session && <a href="/my-videos" className={`nav-link${activePage === 'My Videos' ? ' active' : ''}`} aria-current={activePage === 'My Videos' ? 'page' : undefined} aria-label="My Videos" onClick={event => { event.preventDefault(); onOpenMyVideos?.(); }}><Icon name="myVideos" size={22} /><span>My Videos</span></a>}{library.map(([icon, label]) => <NavLink key={label} icon={icon} active={label === activePage} onNavigate={label === 'History' ? onOpenHistory : undefined}>{label}</NavLink>)}{import.meta.env.DEV && <a href="/demo" className="nav-link" title="Development only"><Icon name="play" size={22} /><span>Feature showcase</span></a>}<a href="/memberships" className="nav-link" onClick={event => { event.preventDefault(); onOpenMemberships?.(); }}><Icon name="liked" size={22} /><span>Memberships</span></a></div>
         <div className="nav-group subscriptions-group">
           <h3>Subscriptions</h3>
           {loadingSubscriptions && <p className="sidebar-subscription-message">Loading…</p>}
