@@ -6,7 +6,7 @@ import './History.css';
 const PAGE_SIZE = 20;
 const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
-export default function History({ onHome }) {
+export default function History({ onHome, onSelectVideo }) {
   const [entries, setEntries] = useState([]);
   const [page, setPage] = useState(0);
   const [revision, setRevision] = useState(0);
@@ -76,6 +76,13 @@ export default function History({ onHome }) {
 
   const disabled = loading || busy;
 
+  function openVideo(event, entry) {
+    if (!onSelectVideo || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    // Reuse App's existing watch route, including metadata for videos outside the public feed.
+    onSelectVideo(entry.videoId, entry.video);
+  }
+
   return <section className="history-page" aria-labelledby="history-heading">
     <div className="history-heading">
       <div><p className="history-eyebrow">YOUR LIBRARY</p><h1 id="history-heading">Watch history</h1><p>Your recently watched videos, all in one place.</p></div>
@@ -96,8 +103,11 @@ export default function History({ onHome }) {
     {loading ? <p className="history-loading" role="status">Loading your history…</p> : !error && entries.length === 0 ? <div className="history-empty"><Icon name="history" size={52} /><h2>Your story starts here</h2><p>Videos you watch will appear here.</p><a className="history-button" href="/" onClick={onHome ? event => { event.preventDefault(); onHome(); } : undefined}>Explore videos</a></div> : <div aria-busy={busy}>
       {!error && <><div className="history-list-label"><h2>Recently watched</h2><span>Newest first</span></div><ul className="history-list">
         {entries.map(entry => <li className="history-entry" key={entry.id}>
-          <div className="history-thumbnail" aria-hidden="true"><Icon name="play" size={32} /></div>
-          <div className="history-entry-copy"><h3>Video {entry.videoId}</h3><p>Video details will appear when available.</p><time dateTime={entry.watchedAt}>Watched {dateFormatter.format(new Date(entry.watchedAt))}</time></div>
+          {entry.video ? <a className="history-thumbnail" href={`/watch/${entry.videoId}`} aria-label={`Play ${entry.video.title}`} onClick={event => openVideo(event, entry)}>
+            <img src={entry.video.thumbnailUrl || '/thumbnail-placeholder.svg'} alt={`Thumbnail for ${entry.video.title}`} />
+            <span className="history-play" aria-hidden="true"><Icon name="play" size={32} /></span>
+          </a> : <div className="history-thumbnail" aria-hidden="true"><Icon name="history" size={32} /></div>}
+          <div className="history-entry-copy"><h3>{entry.video ? <a className="history-video-title" href={`/watch/${entry.videoId}`} onClick={event => openVideo(event, entry)}>{entry.video.title}</a> : `Video ${entry.videoId}`}</h3><p>{entry.video?.channelName || 'This video is unavailable or private.'}</p><time dateTime={entry.watchedAt}>Watched {dateFormatter.format(new Date(entry.watchedAt))}</time></div>
           <button className="history-remove" disabled={disabled || confirmClear} aria-label={`Remove video ${entry.videoId} from history`} onClick={() => mutate(() => removeHistory(entry.id), `Video ${entry.videoId} removed from history.`)}>Remove</button>
         </li>)}
       </ul></>}
