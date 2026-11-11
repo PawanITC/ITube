@@ -77,6 +77,8 @@ The API starts on http://localhost:8080. For video quality processing, start the
 
 For History endpoints, the optional H2 profile, and the backend package layout, see [the History guide](backend/HISTORY.md).
 
+For the Liked videos API, UI, and a beginner walkthrough of its implementation, see [the Liked videos guide](backend/LIKED-VIDEOS.md).
+
 Uploaded videos are kept in PostgreSQL for this first implementation. Kafka schedules background FFmpeg jobs that create 360p and 720p MP4 renditions. The API reports `PROCESSING`, `READY`, or `FAILED`; while processing, the original remains playable. Quality files are also stored in PostgreSQL, so this is suitable for local development/small demos rather than production-scale media storage.
 
 ### 2. Run the frontend (in a second terminal)

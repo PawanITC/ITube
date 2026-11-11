@@ -21,6 +21,7 @@ test('History thumbnail opens the correct unlisted video in the existing player'
     else if (url === '/api/history' && options?.method === 'POST') return { ok: true, status: 201, json: async () => ({ id: 2, videoId: 25 }) };
     else if (url.endsWith('/playback-authorisation')) body = { videoId: 25, allowed: true, sourceUrl: '/api/videos/25/file' };
     else if (url.includes('/tiers')) body = { owner: false, tiers: [] };
+    else if (url === '/api/liked-videos/25') body = { videoId: 25, liked: false };
     return { ok: true, status: 200, json: async () => body };
   });
   const { container, unmount } = render(<App />);
@@ -35,6 +36,32 @@ test('History thumbnail opens the correct unlisted video in the existing player'
     expect(container.querySelector('video')).toHaveAttribute('src', '/api/videos/25/file');
     fireEvent.playing(container.querySelector('video'));
     expect(fetch.mock.calls.some(([url, options]) => url === '/api/history' && options?.method === 'POST' && JSON.parse(options.body).videoId === 25)).toBe(true);
+  } finally {
+    unmount();
+    window.history.replaceState(null, '', '/');
+  }
+});
+
+test('navigates to liked videos and plays a liked unlisted video outside the public feed', async () => {
+  const video = { videoId: 25, channelId: 2, title: 'An unlisted favourite', channelName: 'Test channel', duration: '00:01:00', processingStatus: 'READY', visibility: 'UNLISTED' };
+  fetch.mockImplementation(async url => {
+    let body = [];
+    if (url.startsWith('/api/liked-videos?')) body = [{ video, likedAt: '2026-11-10T10:00:00Z' }];
+    else if (url === '/api/liked-videos/25') body = { videoId: 25, liked: true };
+    else if (url.endsWith('/playback-authorisation')) body = { allowed: true, sourceUrl: '/api/videos/25/file' };
+    else if (url.includes('/tiers')) body = { owner: false, tiers: [] };
+    return { ok: true, status: 200, json: async () => body };
+  });
+  const { unmount } = render(<App />);
+  try {
+    fireEvent.click(screen.getAllByRole('link', { name: 'Liked videos' })[0]);
+    expect(await screen.findByRole('heading', { name: 'Liked videos' })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/liked-videos');
+    expect(screen.getAllByRole('link', { name: 'Liked videos' }).every(link => link.getAttribute('aria-current') === 'page')).toBe(true);
+    fireEvent.click(await screen.findByRole('link', { name: 'Play An unlisted favourite' }));
+    expect(await screen.findByRole('heading', { name: 'An unlisted favourite' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Unlike video' })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/watch/25');
   } finally {
     unmount();
     window.history.replaceState(null, '', '/');
