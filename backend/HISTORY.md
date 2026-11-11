@@ -16,10 +16,10 @@ enter the URL, and for POST choose Body -> raw -> JSON.
 
 | Method | Path | Success |
 | --- | --- | --- |
-| POST | `/api/history?userId=user-123` | 201 with the created entry |
-| GET | `/api/history?userId=user-123&page=0&size=20` | 200 with a JSON array |
-| DELETE | `/api/history/10?userId=user-123` | 204 without a body |
-| DELETE | `/api/history?userId=user-123` | 204 without a body |
+| POST | `/api/history` | 201 with the created entry |
+| GET | `/api/history?page=0&size=20` | 200 with a JSON array |
+| DELETE | `/api/history/10` | 204 without a body |
+| DELETE | `/api/history` | 204 without a body |
 
 POST body:
 
@@ -41,14 +41,15 @@ uses offsets, so new watches or deletions between requests can shift page bounda
 Each POST records one watch event. Watching the same video twice creates two entries.
 The server supplies the time. Deletion by ID removes a history entry, never the video.
 Clearing an empty history succeeds. Deleting a missing entry or an entry belonging
-to a different supplied user returns 404. Invalid input returns 400, including blank
-user IDs, user IDs longer than 255 characters, invalid paging, nonpositive IDs,
+to a different supplied user returns 404. Invalid input returns 400, including invalid paging, nonpositive IDs,
 missing video IDs, and malformed JSON. A missing JSON content type can return 415.
 
 ## How the Java classes work together
 
 1. `HistoryController` reads HTTP input, validates it, and selects response statuses.
-2. `HistoryRequest` holds the incoming video ID.
+2. `HistoryRequest` holds the incoming video ID. The controller gets the account ID
+   from `CurrentUser.require(session)` and passes its string representation to the
+   existing service; the VARCHAR history user-ID column is unchanged.
 3. `HistoryService` performs operations in database transactions, assigns watch times,
    and converts entities to response DTOs. Read operations use read-only transactions.
 4. `HistoryRepository` provides database operations through Spring Data JPA. Its
@@ -64,14 +65,16 @@ on the record component, and the API JSON property names remain the same.
 
 `HistoryApiTests` starts a real HTTP server and uses H2 to test validation, save/read,
 repeat watches, ordering, paging, single deletion, and clearing. The tests check user
-filtering, not authentication: the query parameter is still client-controlled.
+filtering and session authentication. Client-supplied userId parameters cannot
+select another account's records. MockMvc sessions avoid requiring Redis for these tests.
 
 ## Team integration still required
 
-- Replace every `userId` query parameter with identity from the authenticated user.
-  The current API is a local learning API and does not prevent impersonating a user.
+- History uses the existing session identity. The authentication developer can
+  replace development sessions through the shared CurrentUser helper later.
 - Integrate video existence checks and agree the video ID type with the video developer.
-  Titles/thumbnails can be added to response DTOs when video data is available.
+  History responses now include current video metadata; video-existence checks on
+  recording can be integrated separately.
 - PostgreSQL now follows the shared `DATABASE_URL`, `DATABASE_USERNAME`, and
   `DATABASE_PASSWORD` configuration. History adds `schema-history.sql` to the team's
   SQL initialization list and preserves Hibernate's shared `ddl-auto=validate` setting.
@@ -107,17 +110,55 @@ Run the backend, then run `npm run dev` from `frontend`. Open
 Vite proxies the API calls to port 8080, following the team's defaults.
 
 The page loads real API entries with watch times, paging, refresh, removal, and
-confirmation before clearing all history. Video titles, thumbnails, and playback
-remain integration work for History, so entries display their video IDs. The team's
-new video, channel, upload, and membership pages are preserved by the merge.
+confirmation before clearing all history. Responses include a nullable `video`
+field using the existing VideoSummaryDto: title, channel, thumbnail URL, and playback
+metadata. The thumbnail URL is the same endpoint used by the feed and watch player.
+Clicking a thumbnail or title uses App's existing watch route with that video's ID
+and metadata, including unlisted videos outside the public feed. The existing player
+still checks playback authorisation. Missing or another owner's private videos expose
+no playable metadata, but their History rows remain removable.
 
-The development identity defaults to `user-123`, matching the Postman examples.
-To change it locally, set `VITE_HISTORY_USER_ID=your-user-id` in
-`frontend/.env.local` and restart Vite. This is not authentication.
-Create records through POST using the same user ID to populate the page.
-`frontend/src/api/history.js` exports `recordWatch(videoId)` for the future player;
-call it when actual playback starts, not when a thumbnail is displayed.
+Start a session through the existing header before watching. The History client
+sends the session cookie and no longer uses VITE_HISTORY_USER_ID or user-123.
+Postman must also keep the cookie from POST /api/session/dev. Unauthenticated
+History requests return 401. Old user-123 test rows are not reassigned to real users.
 
 Frontend tests use mocked HTTP responses to cover loading, errors, retries,
 deletion, clearing confirmation, pagination, request cancellation, and navigation.
 Run `npm test -- --run` and `npm run build` from `frontend`.
+
+## Automatic playback recording
+
+WatchPage calls the existing recordWatch(videoId) helper from the video element's
+playing event. Opening a page, loading metadata, a blocked autoplay, or seeing a
+locked player does not create a watch record. A ref marks the attempt before the
+request starts, preventing duplicate POSTs from pause/resume, buffering, and quality
+source changes. Switching videos, revisiting a video, or changing the signed-in
+account resets the marker. Failed writes do not interrupt playback; a later playing
+event can retry. Anonymous playback remains available but creates no history row.
+
+HistoryController uses the team's CurrentUser helper for all History endpoints, so
+the automatic write and the library page use the same account. HistoryService, its
+repository/entity, and database schema are reused without changes for this wiring.
+The History page is keyed by account so an account switch clears its old UI state.
+
+The actual configuration was verified against Docker Compose: postgres:17-alpine
+at localhost:5434/itube, with Redis sessions at localhost:6379. The live backend used
+PostgreSQLDialect and schema validation. A real session POST returned 201; GET
+returned its record, and a direct PostgreSQL query confirmed its numeric session
+user ID and video ID. An anonymous POST returned 401. Verification-only records
+were removed and the services started for this check were stopped afterward.
+
+WatchPage.history.test.jsx exercises actual player events with simulated HTTP,
+including pending-request deduplication and failed-write isolation. HistoryApiTests
+checks the existing service/repository via the updated session-authenticated
+controller, including spoofed userId parameters and per-user deletion/clearing.
+
+## Current thumbnails and replay
+
+HistoryResponse keeps id, videoId and watchedAt, and adds nullable video metadata.
+HistoryService loads one page of records and fetches the current video summaries in
+one additional query for that page, rather than fetching large video/thumbnail bytes
+or querying each row individually. This also means a title/thumbnail edit is reflected
+on the next History refresh. Videos with no thumbnail use the same placeholder as
+the feed. No database table or teammate video endpoint was changed.

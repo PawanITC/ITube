@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
 import App from './App';
 
@@ -10,6 +10,36 @@ afterEach(() => vi.unstubAllGlobals());
 test('renders the video feed', () => {
   render(<App />);
   expect(screen.getByRole('main')).toBeInTheDocument();
+});
+
+test('History thumbnail opens the correct unlisted video in the existing player', async () => {
+  const video = { videoId: 25, channelId: 2, title: 'A watched video', channelName: 'Test channel', thumbnailUrl: '/api/videos/25/thumbnail', visibility: 'UNLISTED', processingStatus: 'READY' };
+  fetch.mockImplementation(async (url, options) => {
+    let body = [];
+    if (url === '/api/session/current') body = { userId: 7, channelId: 2 };
+    else if (url.startsWith('/api/history?')) body = [{ id: 1, videoId: 25, watchedAt: '2026-11-10T10:00:00Z', video }];
+    else if (url === '/api/history' && options?.method === 'POST') return { ok: true, status: 201, json: async () => ({ id: 2, videoId: 25 }) };
+    else if (url.endsWith('/playback-authorisation')) body = { videoId: 25, allowed: true, sourceUrl: '/api/videos/25/file' };
+    else if (url.includes('/tiers')) body = { owner: false, tiers: [] };
+    else if (url === '/api/liked-videos/25') body = { videoId: 25, liked: false };
+    return { ok: true, status: 200, json: async () => body };
+  });
+  const { container, unmount } = render(<App />);
+  try {
+    fireEvent.click(screen.getAllByRole('link', { name: 'History' })[0]);
+    expect(await screen.findByRole('img', { name: 'Thumbnail for A watched video' })).toHaveAttribute('src', video.thumbnailUrl);
+    fireEvent.click(screen.getByRole('link', { name: 'Play A watched video' }));
+    expect(await screen.findByRole('heading', { name: 'A watched video' })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/watch/25');
+    await waitFor(() => expect(container.querySelector('video')).toHaveAttribute('src', '/api/videos/25/file'));
+    expect(container.querySelector('video')).toHaveAttribute('poster', video.thumbnailUrl);
+    expect(container.querySelector('video')).toHaveAttribute('src', '/api/videos/25/file');
+    fireEvent.playing(container.querySelector('video'));
+    expect(fetch.mock.calls.some(([url, options]) => url === '/api/history' && options?.method === 'POST' && JSON.parse(options.body).videoId === 25)).toBe(true);
+  } finally {
+    unmount();
+    window.history.replaceState(null, '', '/');
+  }
 });
 
 test('navigates to liked videos and plays a liked unlisted video outside the public feed', async () => {
