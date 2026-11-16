@@ -55,7 +55,7 @@ Use two browsers, or one normal window and one private window, so you have two s
 | 1 | Creator (window A) | Click the logo to start the demo session, then open your channel page | A **Channel memberships** panel |
 | 2 | Creator | Add "Supporter", level 1, £2.99, and "VIP", level 3, £9.99 | Both listed. Products appear in Stripe under **Product catalogue** |
 | 3 | Creator | Upload a video with **Visibility: Members only** | It shows a green "Members only" badge in the feed |
-| 4 | Viewer (window B) | Click **Random user**, open the video | Locked player: "Join the channel to watch it" |
+| 4 | Viewer (window B) | Register a new account (**Sign in** → **Create an account**), open the video | Locked player: "Join the channel to watch it" |
 | 5 | Viewer | Try `http://localhost:8080/api/videos/<id>/file` directly | `403` |
 | 6 | Viewer | Click **Join to watch** → **Join** on Supporter | Redirected to Stripe Checkout |
 | 7 | Viewer | Pay with `4242 4242 4242 4242`, any future date, any CVC and postcode | Back on iTube: "Confirming your payment…", then "Welcome, you're a member!" |

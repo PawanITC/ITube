@@ -30,6 +30,12 @@ public class AccountEntity {
     public AccountEntity() {
     }
 
+    public Long getUserId() { return userId; }
+    public String getFirstname() { return firstname; }
+    public String getLastname() { return lastname; }
+    public String getEmail() { return email; }
+    public String getPasswordHash() { return passwordHash; }
+
     public void setFirstname(String firstname) { this.firstname = firstname; }
     public void setLastname(String lastname) { this.lastname = lastname; }
     public void setEmail(String email) { this.email = email; }

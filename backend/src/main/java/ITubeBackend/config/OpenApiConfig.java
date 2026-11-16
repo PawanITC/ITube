@@ -19,9 +19,9 @@ public class OpenApiConfig {
                 .description("""
                         REST API for the ITube video platform, generated from the Spring controllers.
 
-                        **Signing in (temporary, until login is finished):** call `POST /api/session/dev` \
-                        or `POST /api/session/dev/random` with **Try it out**. The browser keeps the session \
-                        cookie, so the other endpoints then run as that user. The user is always taken from \
+                        **Signing in:** call `POST /api/auth/register` or `POST /api/auth/login` with \
+                        **Try it out**. The browser keeps the session cookie, so the other endpoints then run as \
+                        that user. The user is always taken from \
                         the session, never from the request.
 
                         **Money** is in minor units (pence) with a lowercase currency, and prices always come \

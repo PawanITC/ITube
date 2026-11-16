@@ -16,7 +16,7 @@ test('History thumbnail opens the correct unlisted video in the existing player'
   const video = { videoId: 25, channelId: 2, title: 'A watched video', channelName: 'Test channel', thumbnailUrl: '/api/videos/25/thumbnail', visibility: 'UNLISTED', processingStatus: 'READY' };
   fetch.mockImplementation(async (url, options) => {
     let body = [];
-    if (url === '/api/session/current') body = { userId: 7, channelId: 2 };
+    if (url === '/api/session/current' || url === '/api/auth/me') body = { userId: 7, channelId: 2 };
     else if (url.startsWith('/api/history?')) body = [{ id: 1, videoId: 25, watchedAt: '2026-11-10T10:00:00Z', video }];
     else if (url === '/api/history' && options?.method === 'POST') return { ok: true, status: 201, json: async () => ({ id: 2, videoId: 25 }) };
     else if (url.endsWith('/playback-authorisation')) body = { videoId: 25, allowed: true, sourceUrl: '/api/videos/25/file' };
