@@ -64,7 +64,7 @@ public class AuthService {
                 ? account.getFirstname() + " " + account.getLastname()
                 : request.channelName().trim();
         ChannelEntity channel = new ChannelEntity();
-        channel.setUser(account);
+        channel.setOwnerUserId(account.getUserId());
         channel.setChannelName(channelName);
         channel = channelRepository.save(channel);
 

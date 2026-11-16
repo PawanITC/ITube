@@ -12,7 +12,7 @@ import java.util.UUID;
 
 /** A Kafka message written in the same transaction as the state change it describes. */
 @Entity
-@Table(name = "outbox_events")
+@Table(name = "outbox_events", schema = "payments")
 public class OutboxEventEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

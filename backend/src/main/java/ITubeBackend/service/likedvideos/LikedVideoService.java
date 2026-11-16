@@ -1,64 +1,98 @@
 package ITubeBackend.service.likedvideos;
 
 import ITubeBackend.dto.likedvideos.LikedVideoResponse;
-import ITubeBackend.dto.video.VideoSummaryDto;
-import ITubeBackend.dto.likedvideos.LikedVideoRow;
 import ITubeBackend.dto.likedvideos.LikedVideoStatusResponse;
-import ITubeBackend.repository.LikedVideoRepository;
+import ITubeBackend.dto.video.VideoSummaryDto;
+import ITubeBackend.engagement.LikeStore;
+import ITubeBackend.engagement.LikeStore.Like;
+import ITubeBackend.entities.VideoVisibility;
 import ITubeBackend.repository.AccountRepository;
 import ITubeBackend.repository.VideoRepository;
-import ITubeBackend.entities.VideoVisibility;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.time.Clock;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
+/**
+ * Likes live in ScyllaDB (engagement); video details and visibility come from the catalog by id.
+ * Likes of videos the viewer can no longer see (deleted, or private and not theirs) are skipped.
+ */
 @Service
 public class LikedVideoService {
+    // How many likes to resolve against the catalog per query while filling a page
+    private static final int LOOKUP_BATCH = 50;
 
-    private final LikedVideoRepository likedVideoRepository;
+    private final LikeStore likeStore;
     private final AccountRepository accountRepository;
     private final VideoRepository videoRepository;
     private final Clock clock;
 
-    public LikedVideoService(LikedVideoRepository likedVideoRepository,
-                             AccountRepository accountRepository,
+    public LikedVideoService(LikeStore likeStore, AccountRepository accountRepository,
                              VideoRepository videoRepository, Clock clock) {
-        this.likedVideoRepository = likedVideoRepository;
+        this.likeStore = likeStore;
         this.accountRepository = accountRepository;
         this.videoRepository = videoRepository;
         this.clock = clock;
     }
 
-    @Transactional
     public void likeVideo(Long userId, Long videoId) {
         requireAccount(userId);
         requireVisibleVideo(userId, videoId);
-        likedVideoRepository.insertIfAbsent(userId, videoId, clock.instant());
+        likeStore.likeIfAbsent(userId, videoId, clock.instant());
     }
 
-    @Transactional
     public void unlikeVideo(Long userId, Long videoId) {
         requireAccount(userId);
         validateVideoId(videoId);
         // Still allow removal if the video was deleted or has since become private.
-        likedVideoRepository.deleteForUserAndVideo(userId, videoId);
+        likeStore.unlike(userId, videoId);
     }
 
-    @Transactional(readOnly = true)
     public LikedVideoStatusResponse getLikeStatus(Long userId, Long videoId) {
         requireAccount(userId);
         requireVisibleVideo(userId, videoId);
-        boolean liked = likedVideoRepository.existsByUser_UserIdAndVideo_VideoId(userId, videoId);
-        return new LikedVideoStatusResponse(videoId, liked);
+        return new LikedVideoStatusResponse(videoId, likeStore.isLiked(userId, videoId));
     }
 
-    private void validateVideoId(Long videoId) {
+    public List<LikedVideoResponse> getLikedVideos(Long userId, int page, int size) {
+        requireAccount(userId);
+        if (page < 0 || size < 1 || size > 100) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Page must be nonnegative and size must be 1 to 100");
+        }
+        int toSkip = page * size;
+        List<LikedVideoResponse> responses = new ArrayList<>(size);
+        try (Stream<Like> likes = likeStore.newestFirst(userId)) {
+            Iterator<Like> iterator = likes.iterator();
+            while (iterator.hasNext() && responses.size() < size) {
+                List<Like> batch = new ArrayList<>(LOOKUP_BATCH);
+                while (iterator.hasNext() && batch.size() < LOOKUP_BATCH) batch.add(iterator.next());
+                Map<Long, VideoSummaryDto> visible = videoRepository.findVisibleVideoSummaries(
+                                batch.stream().map(Like::videoId).toList(), userId).stream()
+                        .collect(Collectors.toMap(VideoSummaryDto::videoId, Function.identity()));
+                for (Like like : batch) {
+                    VideoSummaryDto video = visible.get(like.videoId());
+                    if (video == null) continue;
+                    if (toSkip > 0) {
+                        toSkip--;
+                        continue;
+                    }
+                    responses.add(new LikedVideoResponse(video, like.likedAt()));
+                    if (responses.size() == size) break;
+                }
+            }
+        }
+        return responses;
+    }
+
+    private static void validateVideoId(Long videoId) {
         if (videoId == null || videoId <= 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A positive video ID is required");
         }
@@ -77,27 +111,5 @@ public class LikedVideoService {
         if (video.visibility() == VideoVisibility.PRIVATE && !userId.equals(video.ownerUserId())) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Video not found");
         }
-
-    }
-
-    @Transactional(readOnly = true)
-    public List<LikedVideoResponse> getLikedVideos(Long userId, int page, int size) {
-        requireAccount(userId);
-        if (page < 0 || size < 1 || size > 100) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Page must be nonnegative and size must be 1 to 100");
-        }
-        List<LikedVideoRow> likes = likedVideoRepository
-                .findVisibleLikesByUserId(userId, PageRequest.of(page, size));
-
-        List<LikedVideoResponse> responses = new ArrayList<>();
-        for (LikedVideoRow like : likes) {
-            VideoSummaryDto summary = new VideoSummaryDto(
-                    like.videoId(), like.channelId(), like.title(), like.channelName(),
-                    like.duration(), like.hasThumbnail(), like.processingStatus(),
-                    like.visibility(), like.requiredTierLevel()
-            );
-            responses.add(new LikedVideoResponse(summary, like.likedAt()));
-        }
-        return responses;
     }
 }

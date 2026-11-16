@@ -2,7 +2,8 @@ package ITubeBackend;
 
 import ITubeBackend.entities.AccountEntity;
 import ITubeBackend.entities.ChannelEntity;
-import ITubeBackend.entities.LikedVideoEntity;
+import ITubeBackend.engagement.LikeStore;
+import ITubeBackend.engagement.memory.InMemoryEngagementStores;
 import ITubeBackend.entities.VideoEntity;
 import ITubeBackend.entities.VideoVisibility;
 import ITubeBackend.service.likedvideos.LikedVideoService;
@@ -49,6 +50,9 @@ class LikedVideoTests {
     @Autowired
     private LikedVideoController controller;
 
+    @Autowired
+    private LikeStore likeStore;
+
     private MockMvc mvc;
     private MockHttpSession session;
 
@@ -63,6 +67,8 @@ class LikedVideoTests {
         viewerId = (Long) entityManager.getEntityManagerFactory()
                 .getPersistenceUnitUtil().getIdentifier(viewer);
         mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        // Likes are in the in-memory engagement store (ScyllaDB in production), not the rolled-back database
+        ((InMemoryEngagementStores.Resettable) likeStore).reset();
         session = new MockHttpSession();
         session.setAttribute("userId", viewerId);
     }
@@ -214,8 +220,7 @@ class LikedVideoTests {
         ResponseStatusException error = assertThrows(ResponseStatusException.class,
                 () -> service.likeVideo(viewerId, video.getVideoId()));
         assertEquals(HttpStatus.NOT_FOUND, error.getStatusCode());
-        assertEquals(0L, entityManager.createQuery("select count(l) from LikedVideoEntity l", Long.class)
-                .getSingleResult());
+        assertTrue(likeStore.newestFirst(viewerId).findAny().isEmpty());
     }
 
     @Test
@@ -259,14 +264,14 @@ class LikedVideoTests {
 
     private VideoEntity video(AccountEntity account, String title, VideoVisibility visibility) {
         ChannelEntity channel = new ChannelEntity();
-        channel.setUser(account);
+        channel.setOwnerUserId(account.getUserId());
         channel.setChannelName("Test channel");
         entityManager.persist(channel);
         VideoEntity video = new VideoEntity();
         video.setChannel(channel);
         video.setTitle(title);
         video.setDuration(LocalTime.of(0, 1));
-        video.setVideo(new byte[]{1});
+        video.setVideoKey("videos/test/source");
         video.setVideoContentType("video/mp4");
         video.setVisibility(visibility);
         entityManager.persist(video);
@@ -274,6 +279,7 @@ class LikedVideoTests {
     }
 
     private void like(AccountEntity user, VideoEntity video, Instant time) {
-        entityManager.persist(new LikedVideoEntity(user, video, time));
+        entityManager.flush();
+        likeStore.likeIfAbsent(user.getUserId(), video.getVideoId(), time);
     }
 }

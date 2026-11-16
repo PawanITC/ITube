@@ -2,79 +2,78 @@ package ITubeBackend.service.history;
 
 import ITubeBackend.dto.history.HistoryResponse;
 import ITubeBackend.dto.video.VideoSummaryDto;
-import ITubeBackend.repository.HistoryRepository;
-import ITubeBackend.entities.WatchHistory;
+import ITubeBackend.engagement.WatchHistoryStore;
+import ITubeBackend.engagement.WatchHistoryStore.HistoryEntry;
+import ITubeBackend.repository.VideoRepository;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.data.domain.PageRequest;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Clock;
 import java.util.List;
-import java.util.ArrayList;
-import java.util.Optional;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.time.Instant;
 
+/**
+ * Entries live in ScyllaDB (engagement); video details come from the catalog in one batched query per page.
+ * Missing, deleted or private videos keep a removable History row but expose no playable metadata.
+ */
 @Service
 public class HistoryService {
 
-    private final HistoryRepository historyRepository;
+    private final WatchHistoryStore historyStore;
+    private final VideoRepository videoRepository;
+    private final Clock clock;
 
-    public HistoryService(HistoryRepository historyRepository) {
-        this.historyRepository = historyRepository;
+    public HistoryService(WatchHistoryStore historyStore, VideoRepository videoRepository, Clock clock) {
+        this.historyStore = historyStore;
+        this.videoRepository = videoRepository;
+        this.clock = clock;
     }
 
-    @Transactional
-    public void clearHistory(String userId) {
-        historyRepository.deleteByUserId(userId);
+    public void clearHistory(Long userId) {
+        historyStore.clear(userId);
     }
 
-    @Transactional
-    public boolean deleteHistory(Long id, String userId) {
-        Optional<WatchHistory> entry = historyRepository.findByIdAndUserId(id, userId);
-
-        if (entry.isEmpty()) {
-            return false;
-        }
-
-        historyRepository.delete(entry.get());
+    /** False if the id is malformed or isn't one of this user's entries. */
+    public boolean deleteHistory(String id, Long userId) {
+        UUID entryId = parseId(id);
+        if (historyStore.find(userId, entryId).isEmpty()) return false;
+        historyStore.delete(userId, entryId);
         return true;
     }
 
-    @Transactional
-    public HistoryResponse addHistory(String userId, Long videoId) {
-        WatchHistory entry = new WatchHistory(userId, videoId, Instant.now());
-        WatchHistory savedEntry = historyRepository.save(entry);
-
-        return toResponse(savedEntry, videoSummaries(userId, List.of(savedEntry)).get(savedEntry.getVideoId()));
+    public HistoryResponse addHistory(Long userId, Long videoId) {
+        HistoryEntry entry = historyStore.add(userId, videoId, clock.instant());
+        return toResponse(entry, videoSummaries(userId, List.of(entry)).get(entry.videoId()));
     }
 
-    @Transactional(readOnly = true)
-    public List<HistoryResponse> getHistory(String userId, int page, int size) {
-        List<WatchHistory> historyEntries =
-                historyRepository.findByUserIdOrderByWatchedAtDescIdDesc(
-                        userId, PageRequest.of(page, size));
-
-        Map<Long, VideoSummaryDto> videos = videoSummaries(userId, historyEntries);
-        List<HistoryResponse> responses = new ArrayList<>();
-
-        for (WatchHistory entry : historyEntries) {
-            responses.add(toResponse(entry, videos.get(entry.getVideoId())));
-        }
-
-        return responses;
+    public List<HistoryResponse> getHistory(Long userId, int page, int size) {
+        List<HistoryEntry> entries = historyStore.page(userId, page * size, size);
+        Map<Long, VideoSummaryDto> videos = videoSummaries(userId, entries);
+        return entries.stream().map(entry -> toResponse(entry, videos.get(entry.videoId()))).toList();
     }
 
-    private Map<Long, VideoSummaryDto> videoSummaries(String userId, List<WatchHistory> entries) {
+    private Map<Long, VideoSummaryDto> videoSummaries(Long userId, List<HistoryEntry> entries) {
         if (entries.isEmpty()) return Map.of();
-        List<Long> ids = entries.stream().map(WatchHistory::getVideoId).distinct().toList();
-        return historyRepository.findVisibleVideoSummaries(ids, userId).stream()
+        List<Long> ids = entries.stream().map(HistoryEntry::videoId).distinct().toList();
+        return videoRepository.findVisibleVideoSummaries(ids, userId).stream()
                 .collect(Collectors.toMap(VideoSummaryDto::videoId, Function.identity()));
     }
 
-    private HistoryResponse toResponse(WatchHistory entry, VideoSummaryDto video) {
-        // Missing/deleted/private videos retain a removable History row but expose no playable metadata.
-        return new HistoryResponse(entry.getId(), entry.getVideoId(), entry.getWatchedAt(), video);
+    private static UUID parseId(String id) {
+        try {
+            UUID uuid = UUID.fromString(id);
+            if (uuid.version() != 1) throw new IllegalArgumentException("Not a history entry id");
+            return uuid;
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid history entry id");
+        }
+    }
+
+    private static HistoryResponse toResponse(HistoryEntry entry, VideoSummaryDto video) {
+        return new HistoryResponse(entry.id(), entry.videoId(), entry.watchedAt(), video);
     }
 }

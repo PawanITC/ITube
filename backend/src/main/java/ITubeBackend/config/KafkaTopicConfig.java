@@ -14,7 +14,7 @@ public class KafkaTopicConfig {
     }
 
     @Bean
-    NewTopic videoRenditionTopic(@Value("${itube.video.rendition-topic}") String topic) {
+    NewTopic videoDeletedTopic(@Value("${itube.video.deleted-topic}") String topic) {
         return TopicBuilder.name(topic).partitions(3).replicas(1).build();
     }
 

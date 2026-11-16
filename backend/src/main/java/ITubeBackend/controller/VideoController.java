@@ -16,7 +16,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.io.IOException;
 import java.time.LocalTime;
 import java.util.List;
 
@@ -37,7 +36,7 @@ public class VideoController {
             @RequestParam("duration") @DateTimeFormat(iso = DateTimeFormat.ISO.TIME) LocalTime duration,
             @RequestParam(value = "visibility", defaultValue = "PUBLIC") VideoVisibility visibility,
             @RequestParam(value = "requiredTierLevel", required = false) Integer requiredTierLevel,
-            HttpSession session) throws IOException {
+            HttpSession session) {
         Object sessionChannelId = session.getAttribute("channelId");
         if (!(sessionChannelId instanceof Long channelId)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Start a session before uploading");
@@ -46,11 +45,12 @@ public class VideoController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A video file is required");
         }
 
-        byte[] thumbnailBytes = thumbnail == null || thumbnail.isEmpty() ? null : thumbnail.getBytes();
         String contentType = file.getContentType() == null ? MediaType.APPLICATION_OCTET_STREAM_VALUE : file.getContentType();
-        String thumbnailContentType = thumbnail == null ? null : thumbnail.getContentType();
-        videoService.saveVideo(new CreateVideo(channelId, file.getBytes(), contentType, thumbnailBytes, thumbnailContentType, title, duration,
-                visibility, requiredTierLevel));
+        MediaUpload video = new MediaUpload(file, file.getSize(), contentType);
+        MediaUpload thumbnailUpload = thumbnail == null || thumbnail.isEmpty() ? null
+                : new MediaUpload(thumbnail, thumbnail.getSize(), thumbnail.getContentType());
+        // Streamed from the multipart temp file to object storage; never held in memory
+        videoService.saveVideo(new CreateVideo(channelId, video, thumbnailUpload, title, duration, visibility, requiredTierLevel));
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
 
@@ -77,14 +77,14 @@ public class VideoController {
             @RequestParam(value = "visibility", defaultValue = "PUBLIC") VideoVisibility visibility,
             @RequestParam(value = "requiredTierLevel", required = false) Integer requiredTierLevel,
             @RequestParam(value = "thumbnail", required = false) MultipartFile thumbnail,
-            HttpSession session) throws IOException {
+            HttpSession session) {
         Long userId = CurrentUser.require(session);
         boolean hasThumbnail = thumbnail != null && !thumbnail.isEmpty();
         if (hasThumbnail && (thumbnail.getContentType() == null || !thumbnail.getContentType().startsWith("image/"))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The thumbnail must be an image");
         }
         return videoService.updateVideoDetails(videoId, userId, title, visibility, requiredTierLevel,
-                hasThumbnail ? thumbnail.getBytes() : null, hasThumbnail ? thumbnail.getContentType() : null);
+                hasThumbnail ? new MediaUpload(thumbnail, thumbnail.getSize(), thumbnail.getContentType()) : null);
     }
 
     @DeleteMapping("/api/videos/{videoId}")
@@ -115,8 +115,7 @@ public class VideoController {
                                                @RequestParam(value = "token", required = false) String token,
                                                @RequestHeader(value = HttpHeaders.RANGE, required = false) String range) {
         boolean openToEveryone = videoService.assertCanStream(videoId, token);
-        VideoStreamInfo info = videoService.getRenditionStreamInfo(videoId, quality);
-        return videoService.streamRange(info, range, openToEveryone, (start, length) -> videoService.getRenditionChunk(videoId, quality, start, length));
+        return videoService.serveMedia(videoService.getRenditionKey(videoId, quality), range, openToEveryone);
     }
 
     @GetMapping("/api/videos/{videoId}/file")
@@ -124,16 +123,12 @@ public class VideoController {
                                                @RequestParam(value = "token", required = false) String token,
                                                @RequestHeader(value = HttpHeaders.RANGE, required = false) String range) {
         boolean openToEveryone = videoService.assertCanStream(videoId, token);
-        VideoStreamInfo info = videoService.getVideoStreamInfo(videoId);
-        return videoService.streamRange(info, range, openToEveryone, (start, length) -> videoService.getVideoChunk(videoId, start, length));
+        return videoService.serveMedia(videoService.getVideoFileKey(videoId), range, openToEveryone);
     }
 
     @GetMapping("/api/videos/{videoId}/thumbnail")
-    public ResponseEntity<byte[]> getThumbnail(@org.springframework.web.bind.annotation.PathVariable Long videoId) {
-        VideoAssetDto asset = videoService.getThumbnail(videoId);
-        MediaType mediaType = asset.contentType() == null
-                ? MediaType.APPLICATION_OCTET_STREAM
-                : MediaType.parseMediaType(asset.contentType());
-        return ResponseEntity.ok().contentType(mediaType).body(asset.content());
+    public ResponseEntity<byte[]> getThumbnail(@PathVariable Long videoId) {
+        // Thumbnails are shown on public listings, so they follow the same rule as before: no token needed
+        return videoService.serveMedia(videoService.getThumbnailKey(videoId), null, true);
     }
 }

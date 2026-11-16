@@ -12,7 +12,7 @@ import java.time.OffsetDateTime;
 
 /** A refund (one cumulative row per charge) or a dispute (one row per dispute) against a payment. */
 @Entity
-@Table(name = "refund_records")
+@Table(name = "refund_records", schema = "payments")
 public class RefundRecordEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

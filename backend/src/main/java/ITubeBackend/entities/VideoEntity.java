@@ -14,8 +14,9 @@ import jakarta.persistence.Table;
 
 import java.time.LocalTime;
 
+/** Video metadata. The file, renditions and thumbnail live in object storage; only their keys are kept here. */
 @Entity
-@Table(name = "video")
+@Table(name = "video", schema = "catalog")
 public class VideoEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -26,14 +27,17 @@ public class VideoEntity {
     @JoinColumn(name = "channel_id", nullable = false)
     private ChannelEntity channel;
 
-    @Column(name = "video", nullable = false, columnDefinition = "bytea")
-    private byte[] video;
+    @Column(name = "video_key", length = 512)
+    private String videoKey;
+
+    @Column(name = "video_size_bytes")
+    private Long videoSizeBytes;
 
     @Column(name = "video_content_type", nullable = false, length = 100)
     private String videoContentType;
 
-    @Column(name = "thumbnail", columnDefinition = "bytea")
-    private byte[] thumbnail;
+    @Column(name = "thumbnail_key", length = 512)
+    private String thumbnailKey;
 
     @Column(name = "thumbnail_content_type", length = 100)
     private String thumbnailContentType;
@@ -58,9 +62,10 @@ public class VideoEntity {
     }
 
     public void setChannel(ChannelEntity channel) { this.channel = channel; }
-    public void setVideo(byte[] video) { this.video = video; }
+    public void setVideoKey(String videoKey) { this.videoKey = videoKey; }
+    public void setVideoSizeBytes(Long videoSizeBytes) { this.videoSizeBytes = videoSizeBytes; }
     public void setVideoContentType(String videoContentType) { this.videoContentType = videoContentType; }
-    public void setThumbnail(byte[] thumbnail) { this.thumbnail = thumbnail; }
+    public void setThumbnailKey(String thumbnailKey) { this.thumbnailKey = thumbnailKey; }
     public void setThumbnailContentType(String thumbnailContentType) { this.thumbnailContentType = thumbnailContentType; }
     public void setTitle(String title) { this.title = title; }
     public void setDuration(LocalTime duration) { this.duration = duration; }
@@ -69,8 +74,9 @@ public class VideoEntity {
     public void setRequiredTierLevel(Integer requiredTierLevel) { this.requiredTierLevel = requiredTierLevel; }
 
     public Long getVideoId() { return videoId; }
-    public byte[] getVideo() { return video; }
-    public byte[] getThumbnail() { return thumbnail; }
+    public String getVideoKey() { return videoKey; }
+    public Long getVideoSizeBytes() { return videoSizeBytes; }
+    public String getThumbnailKey() { return thumbnailKey; }
     public String getThumbnailContentType() { return thumbnailContentType; }
     public String getVideoContentType() { return videoContentType; }
     public String getTitle() { return title; }

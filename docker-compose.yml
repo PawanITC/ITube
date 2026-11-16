@@ -1,11 +1,11 @@
-# Local development infrastructure: PostgreSQL, Redis, Kafka, Grafana (logs/traces/metrics) and the
-# Stripe CLI webhook forwarder. Same ports and credentials the backend expects by default.
+# Local development infrastructure: PostgreSQL, ScyllaDB, SeaweedFS (S3 object storage), Redis, Kafka,
+# Grafana (logs/traces/metrics) and the Stripe CLI webhook forwarder. Same ports and credentials the backend expects by default.
 #
 # Easiest: run dev.cmd (Windows) from the repo root, which starts this plus the backend and frontend.
 # By hand:
 #   docker compose --env-file backend/.env up -d
 #   docker compose logs stripe-cli        # prints the whsec_... secret for STRIPE_WEBHOOK_SECRET
-#   docker compose down                   # stop (add -v to also wipe the database)
+#   docker compose down                   # stop (add -v to also wipe the databases and stored videos)
 #
 # --env-file lets Compose read STRIPE_SECRET_KEY from backend/.env (git-ignored, never committed).
 # tf_docker/ (Terraform) starts the same services on the same ports; use one or the other, not both.
@@ -20,6 +20,27 @@ services:
       POSTGRES_PASSWORD: itube-dev-password
     ports: ["5434:5432"]
     volumes: [postgres_data:/var/lib/postgresql/data]
+
+  # Engagement data: watch history, likes, comments (backend/src/main/resources/scylla/engagement.cql).
+  # Developer mode on one CPU shard. broadcast-rpc-address tells the driver to reconnect via localhost
+  # instead of the container's internal IP, which isn't reachable from Windows/macOS.
+  scylla:
+    image: scylladb/scylla:6.2
+    command: --smp 1 --memory 1G --overprovisioned 1 --developer-mode 1 --rpc-address 0.0.0.0 --broadcast-rpc-address 127.0.0.1
+    ports: ["9042:9042"]
+    volumes: [scylla_data:/var/lib/scylla]
+
+  # SeaweedFS: S3-compatible storage for video files, renditions and thumbnails (S3 API on 8333).
+  # The backend creates the bucket. Browsers play videos straight from here via pre-signed URLs.
+  # The AWS_* variables are SeaweedFS's admin S3 credentials; they match the backend's defaults.
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.51
+    command: server -dir=/data -s3 -s3.port=8333 -master.volumeSizeLimitMB=1024 -volume.max=0
+    environment:
+      AWS_ACCESS_KEY_ID: itube
+      AWS_SECRET_ACCESS_KEY: itube-dev-password
+    ports: ["8333:8333"]
+    volumes: [seaweedfs_data:/data]
 
   redis:
     image: redis:7-alpine
@@ -39,7 +60,6 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_MESSAGE_MAX_BYTES: 104857600
 
   # Receives the backend's logs, traces and metrics (OTLP on 4318), same as tf_docker/main.tf.
   # Without it the backend logs a connection error every 10 seconds. Grafana UI: http://localhost:3080
@@ -61,3 +81,5 @@ services:
 
 volumes:
   postgres_data:
+  scylla_data:
+  seaweedfs_data:

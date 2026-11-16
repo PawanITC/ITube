@@ -58,7 +58,7 @@ public class AccountService {
         ChannelDto channel = channelRepository.findDtoByOwnerAndName(account.userId(), channelName)
                 .orElseGet(() -> {
                     ChannelEntity newChannel = new ChannelEntity();
-                    newChannel.setUser(accountEntity);
+                    newChannel.setOwnerUserId(accountEntity.getUserId());
                     newChannel.setChannelName(channelName);
                     channelRepository.save(newChannel);
                     return channelRepository.findDtoByOwnerAndName(account.userId(), channelName).orElseThrow();

@@ -11,7 +11,7 @@ $EnvFile = "$Root\backend\.env"
 $EnvExample = "$Root\backend\.env.example"
 $Compose = @('compose', '--project-directory', $Root, '--env-file', $EnvFile, '-f', "$Root\docker-compose.yml")
 $PidFile = "$Root\.dev-pids"
-$Services = @('postgres', 'redis', 'kafka', 'grafana-lgtm')
+$Services = @('postgres', 'scylla', 'seaweedfs', 'redis', 'kafka', 'grafana-lgtm')
 
 function Say($text, $colour = 'Cyan') { Write-Host "==> $text" -ForegroundColor $colour }
 function Fail($text) { Write-Host "XX  $text" -ForegroundColor Red; exit 1 }

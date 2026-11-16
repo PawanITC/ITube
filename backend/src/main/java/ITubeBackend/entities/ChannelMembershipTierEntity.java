@@ -12,7 +12,7 @@ import java.time.OffsetDateTime;
 
 /** A paid membership tier a creator offers on their channel. Each tier is one Stripe Product. */
 @Entity
-@Table(name = "channel_membership_tiers")
+@Table(name = "channel_membership_tiers", schema = "payments")
 public class ChannelMembershipTierEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

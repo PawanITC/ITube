@@ -2,25 +2,25 @@ package ITubeBackend.entities;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
+/**
+ * The owner is a plain account id, not a JPA link to AccountEntity: accounts live in the identity
+ * schema and may move to their own database, so the catalog never joins across to them.
+ */
 @Entity
-@Table(name = "channel")
+@Table(name = "channel", schema = "catalog")
 public class ChannelEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "channel_id")
     private Long channelId;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "user_id", nullable = false)
-    private AccountEntity user;
+    @Column(name = "user_id", nullable = false)
+    private Long ownerUserId;
 
     @Column(name = "channel_name", nullable = false, length = 255)
     private String channelName;
@@ -28,9 +28,10 @@ public class ChannelEntity {
     public ChannelEntity() {
     }
 
-    public void setUser(AccountEntity user) { this.user = user; }
+    public void setOwnerUserId(Long ownerUserId) { this.ownerUserId = ownerUserId; }
     public void setChannelName(String channelName) { this.channelName = channelName; }
 
     public Long getChannelId() { return channelId; }
+    public Long getOwnerUserId() { return ownerUserId; }
     public String getChannelName() { return channelName; }
 }

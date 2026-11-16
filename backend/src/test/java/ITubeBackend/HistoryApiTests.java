@@ -1,13 +1,13 @@
 package ITubeBackend;
 
 import ITubeBackend.controller.HistoryController;
-import ITubeBackend.entities.WatchHistory;
 import ITubeBackend.entities.AccountEntity;
 import ITubeBackend.entities.ChannelEntity;
 import ITubeBackend.entities.VideoEntity;
 import ITubeBackend.entities.VideoVisibility;
 import jakarta.persistence.EntityManager;
-import ITubeBackend.repository.HistoryRepository;
+import ITubeBackend.engagement.WatchHistoryStore;
+import ITubeBackend.engagement.memory.InMemoryEngagementStores;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Transactional
 class HistoryApiTests {
     @Autowired private HistoryController controller;
-    @Autowired private HistoryRepository repository;
+    @Autowired private WatchHistoryStore repository;
     @Autowired private EntityManager entityManager;
     private MockMvc mvc;
     private MockHttpSession viewer;
@@ -42,6 +42,8 @@ class HistoryApiTests {
     @BeforeEach
     void setup() {
         mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        // History is in the in-memory engagement store (ScyllaDB in production), not the rolled-back database
+        ((InMemoryEngagementStores.Resettable) repository).reset();
         viewer = session(901L);
         other = session(902L);
     }
@@ -58,7 +60,7 @@ class HistoryApiTests {
                 .andExpect(jsonPath("$[0].video.channelName").value("History test channel"))
                 .andExpect(jsonPath("$[0].video.thumbnailUrl").value("/api/videos/" + videoId + "/thumbnail"));
         fixture.video().setTitle("Updated title");
-        fixture.video().setThumbnail(null);
+        fixture.video().setThumbnailKey(null);
         entityManager.flush();
         mvc.perform(get("/api/history").session(viewer))
                 .andExpect(jsonPath("$[0].video.title").value("Updated title"))
@@ -98,13 +100,12 @@ class HistoryApiTests {
         mvc.perform(post("/api/history?userId=902").session(viewer)
                 .contentType("application/json").content("{\"videoId\":25}"))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.videoId").value(25))
-                .andExpect(jsonPath("$.id").isNumber()).andExpect(jsonPath("$.watchedAt").isString());
+                .andExpect(jsonPath("$.id").isString()).andExpect(jsonPath("$.watchedAt").isString());
         mvc.perform(get("/api/history?userId=902").session(viewer))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
         mvc.perform(get("/api/history?userId=901").session(other))
                 .andExpect(status().isOk()).andExpect(content().json("[]"));
-        assertEquals(1, repository.findByUserIdOrderByWatchedAtDescIdDesc("901",
-                org.springframework.data.domain.PageRequest.of(0, 20)).size());
+        assertEquals(1, repository.page(901L, 0, 20).size());
     }
 
     @Test
@@ -120,12 +121,12 @@ class HistoryApiTests {
     void historyIsPaginatedNewestFirstWithIdAsTieBreaker() throws Exception {
         Instant older = Instant.parse("2026-01-01T10:00:00Z");
         Instant newer = Instant.parse("2026-01-02T10:00:00Z");
-        var entries = repository.saveAll(List.of(new WatchHistory("901", 11L, newer),
-                new WatchHistory("901", 12L, older), new WatchHistory("901", 13L, newer)));
+        var entries = List.of(repository.add(901L, 11L, newer), repository.add(901L, 12L, older),
+                repository.add(901L, 13L, newer));
         mvc.perform(get("/api/history?page=0&size=2").session(viewer))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].id").value(entries.get(2).getId()))
-                .andExpect(jsonPath("$[1].id").value(entries.get(0).getId()));
+                .andExpect(jsonPath("$[0].id").value(entries.get(2).id().toString()))
+                .andExpect(jsonPath("$[1].id").value(entries.get(0).id().toString()));
         mvc.perform(get("/api/history?page=1&size=2").session(viewer))
                 .andExpect(jsonPath("$.length()").value(1)).andExpect(jsonPath("$[0].videoId").value(12));
         mvc.perform(get("/api/history?page=2&size=2").session(viewer)).andExpect(content().json("[]"));
@@ -153,7 +154,7 @@ class HistoryApiTests {
 
     @Test
     void deletionChecksOwnerAndRemovesOnlyTheSelectedEntry() throws Exception {
-        long id = add(viewer, 25L);
+        String id = add(viewer, 25L);
         add(viewer, 26L);
         mvc.perform(delete("/api/history/" + id + "?userId=901").session(other)).andExpect(status().isNotFound());
         mvc.perform(delete("/api/history/" + id).session(viewer)).andExpect(status().isNoContent());
@@ -173,11 +174,11 @@ class HistoryApiTests {
         mvc.perform(delete("/api/history").session(viewer)).andExpect(status().isNoContent());
     }
 
-    private long add(MockHttpSession session, Long videoId) throws Exception {
+    private String add(MockHttpSession session, Long videoId) throws Exception {
         String body = mvc.perform(post("/api/history").session(session).contentType("application/json")
                 .content("{\"videoId\":" + videoId + "}"))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
-        return new ObjectMapper().readTree(body).get("id").asLong();
+        return new ObjectMapper().readTree(body).get("id").asString();
     }
 
     private MockHttpSession session(Long userId) {
@@ -197,18 +198,18 @@ class HistoryApiTests {
         entityManager.persist(owner);
         Long ownerId = (Long) entityManager.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(owner);
         ChannelEntity channel = new ChannelEntity();
-        channel.setUser(owner);
+        channel.setOwnerUserId(ownerId);
         channel.setChannelName("History test channel");
         entityManager.persist(channel);
         VideoEntity video = new VideoEntity();
         video.setChannel(channel);
         video.setTitle("A real watched video");
-        video.setVideo(new byte[]{1});
+        video.setVideoKey("videos/test/source");
         video.setVideoContentType("video/mp4");
         video.setDuration(LocalTime.of(0, 1));
         video.setVisibility(visibility);
         if (visibility == VideoVisibility.MEMBERS_ONLY) video.setRequiredTierLevel(1);
-        if (thumbnail) { video.setThumbnail(new byte[]{1}); video.setThumbnailContentType("image/png"); }
+        if (thumbnail) { video.setThumbnailKey("videos/test/thumbnail"); video.setThumbnailContentType("image/png"); }
         entityManager.persist(video);
         entityManager.flush();
         return new HistoryVideoFixture(video, ownerId);

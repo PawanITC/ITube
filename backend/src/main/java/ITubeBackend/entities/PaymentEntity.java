@@ -12,7 +12,7 @@ import java.time.OffsetDateTime;
 
 /** One charge attempt (a membership invoice now; tips and Premium later) with its fee split. */
 @Entity
-@Table(name = "payments")
+@Table(name = "payments", schema = "payments")
 public class PaymentEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

@@ -1,5 +1,9 @@
 # Liked videos: beginner walkthrough
 
+> **Storage has moved.** Likes now live in ScyllaDB (`likes_by_user`, `like_lookup`, `likes_by_video`), not the
+> PostgreSQL `liked_video` table. See [docs/DATA-ARCHITECTURE.md](../docs/DATA-ARCHITECTURE.md).
+> The PostgreSQL notes below describe the original implementation.
+
 ## What the feature does
 
 A signed-in user can like a video, unlike it, check whether they liked it, and view
