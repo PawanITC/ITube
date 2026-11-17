@@ -40,7 +40,7 @@ Sessions and rate limits stay in Redis. Kafka carries small events only (ids and
   transaction. A failed insert deletes the uploaded files.
 - **Playback:** `/api/videos/{id}/file`, `/renditions/{q}` and `/thumbnail` check access as before, then
   redirect to a pre-signed URL. Set `itube.storage.redirect-playback=false` to stream through the backend
-  instead (used in the dev Kubernetes cluster, where browsers can't reach SeaweedFS).
+  instead (used by the local Kubernetes overlay `deploy/k8s-local`, where browsers can't reach SeaweedFS).
 
 ## Moving a domain to its own database
 
@@ -74,4 +74,4 @@ Nothing to do by hand. On the first start of this version:
 - HLS/DASH segments and a CDN with signed cookies instead of whole MP4s.
 - Cursor pagination for history, likes and comments; time-bucketed comment partitions for very popular videos.
 - Counters (subscribers, likes, views) kept asynchronously instead of `COUNT(*)`.
-- Production ScyllaDB: three or more nodes with replication factor 3 (e.g. Scylla Operator); S3 + IRSA instead of SeaweedFS on EKS.
+- Production ScyllaDB: three or more nodes with replication factor 3 (e.g. Scylla Operator).

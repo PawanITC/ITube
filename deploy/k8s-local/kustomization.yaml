@@ -2,6 +2,8 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../k8s
+  # Local stand-in for S3. The Secret itube-secrets needs a `storage-secret-key` entry for it.
+  - seaweedfs.yaml
 # The base has already renamed the images to their ECR names, so match on those.
 images:
   - name: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-backend
@@ -16,3 +18,50 @@ patches:
       - op: replace
         path: /spec/volumeClaimTemplates/0/spec/storageClassName
         value: hostpath
+  # The base backend uses AWS S3 through EKS Pod Identity; locally it uses SeaweedFS with static keys
+  - target: { kind: Deployment, name: backend }
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: backend
+      spec:
+        template:
+          spec:
+            initContainers:
+              - name: wait-for-dependencies
+                command:
+                  - bash
+                  - -c
+                  - |
+                    for target in postgres:5432 scylla:9042 seaweedfs:8333 redis:6379 kafka:9092; do
+                      host="${target%%:*}"; port="${target##*:}"
+                      until (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null; do
+                        echo "waiting for ${target} ..."; sleep 3
+                      done
+                      echo "${target} is reachable"
+                    done
+            containers:
+              - name: backend
+                env:
+                  - name: STORAGE_BUCKET
+                    value: itube-media
+                  - name: STORAGE_REGION
+                    value: us-east-1
+                  - name: STORAGE_ENDPOINT
+                    value: http://seaweedfs:8333
+                  - name: STORAGE_ACCESS_KEY
+                    value: itube
+                  - name: STORAGE_SECRET_KEY
+                    value: null # drop the base's empty value; the key comes from the Secret
+                    valueFrom:
+                      secretKeyRef:
+                        name: itube-secrets
+                        key: storage-secret-key
+                  - name: STORAGE_PATH_STYLE
+                    value: "true"
+                  - name: STORAGE_CREATE_BUCKET
+                    value: "true"
+                  # Browsers can't follow a pre-signed URL to http://seaweedfs:8333: stream through the backend
+                  - name: ITUBE_STORAGE_REDIRECT_PLAYBACK
+                    value: "false"

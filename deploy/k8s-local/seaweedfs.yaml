@@ -1,7 +1,7 @@
 # SeaweedFS (all-in-one: master, volume, filer and S3 gateway): S3-compatible storage for video files,
 # renditions and thumbnails. The backend creates the bucket.
-# Dev cluster only. On AWS, use an S3 bucket (with CloudFront in front) instead: point STORAGE_ENDPOINT at
-# S3, clear the access keys so the pod role is used, and turn ITUBE_STORAGE_REDIRECT_PLAYBACK back on.
+# Local Kubernetes only (this overlay): stands in for the S3 bucket the EKS cluster uses
+# (deploy/terraform/storage.tf). kustomization.yaml points the backend at it.
 apiVersion: v1
 kind: Service
 metadata:
@@ -44,10 +44,10 @@ spec:
         - name: seaweedfs
           image: chrislusf/seaweedfs:4.51
           imagePullPolicy: IfNotPresent
-          # Subdirectory, because the root of a fresh EBS volume contains lost+found
+          # Same as docker-compose.yml. (A subdirectory crashed: SeaweedFS doesn't create its -dir.)
           args:
             - server
-            - -dir=/data/seaweedfs
+            - -dir=/data
             - -s3
             - -s3.port=8333
             - -master.volumeSizeLimitMB=1024
