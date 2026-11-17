@@ -12,7 +12,7 @@ import java.time.OffsetDateTime;
 
 /** A Checkout Session iTube created. Lets repeat clicks reuse or expire an open session. */
 @Entity
-@Table(name = "checkout_sessions")
+@Table(name = "checkout_sessions", schema = "payments")
 public class CheckoutSessionEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

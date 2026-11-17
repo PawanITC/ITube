@@ -11,7 +11,7 @@ import java.time.OffsetDateTime;
 
 /** Links an iTube account to its Stripe Customer. */
 @Entity
-@Table(name = "payment_customers")
+@Table(name = "payment_customers", schema = "payments")
 public class PaymentCustomerEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

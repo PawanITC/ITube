@@ -17,8 +17,6 @@ resource "docker_container" "kafka_connect" {
     "CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR=1",
     "CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR=1",
     "CONNECT_STATUS_STORAGE_REPLICATION_FACTOR=1",
-    # Lets the connector raise its own consumer fetch size for large renditions
-    "CONNECT_CONNECTOR_CLIENT_CONFIG_OVERRIDE_POLICY=All",
   ]
 
   ports {
@@ -48,26 +46,6 @@ provider "kafka-connect" {
   url = "http://localhost:8083"
 }
 
-resource "kafka-connect_connector" "video_rendition_sink" {
-  name = "video_rendition_sink"
-  config = {
-    "name"                                        = "video_rendition_sink"
-    "connector.class"                             = "io.debezium.connector.jdbc.JdbcSinkConnector"
-    "topics"                                      = "video.rendition"
-    "connection.url"                              = "jdbc:postgresql://itube-postgres:5432/itube"
-    "connection.username"                         = "itube"
-    "insert.mode"                                 = "upsert"
-    "primary.key.mode"                            = "record_value"
-    "primary.key.fields"                          = "video_id,quality"
-    "collection.name.format"                      = "video_rendition"
-    "schema.evolution"                            = "none"
-    "key.converter"                               = "org.apache.kafka.connect.storage.StringConverter"
-    "value.converter"                             = "org.apache.kafka.connect.json.JsonConverter"
-    "value.converter.schemas.enable"              = "true"
-    "consumer.override.max.partition.fetch.bytes" = "104857600"
-  }
-  config_sensitive = {
-    "connection.password" = "itube-dev-password"
-  }
-  depends_on = [docker_container.kafka_connect]
-}
+# The video_rendition_sink connector was removed: renditions are now written to object storage by the
+# transcode worker, which records their keys in catalog.video_rendition itself. Kafka Connect stays for
+# future change-data-capture (e.g. Debezium feeding a search index).

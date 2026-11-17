@@ -1,5 +1,5 @@
 # Kafka 4.0, single node in KRaft mode (broker + controller), same settings as docker-compose.yml.
-# Carries the transcode jobs and the base64 renditions (records up to 100 MB).
+# Carries small event messages only (transcode jobs, video.deleted, membership events): ids and storage keys, never media.
 apiVersion: v1
 kind: Service
 metadata:
@@ -87,14 +87,7 @@ spec:
             # would reject as an invalid partition directory
             - name: KAFKA_LOG_DIRS
               value: /var/lib/kafka/data/kraft-combined-logs
-            # Renditions are sent as base64 JSON records of up to 100 MB
-            - name: KAFKA_MESSAGE_MAX_BYTES
-              value: "104857600"
-            - name: KAFKA_REPLICA_FETCH_MAX_BYTES
-              value: "104857600"
-            - name: KAFKA_SOCKET_REQUEST_MAX_BYTES
-              value: "125829120"
-            # Keep the 5Gi volume from filling up with old renditions (5 topics x 3 partitions)
+            # Keep the 5Gi volume bounded (5 topics x 3 partitions)
             - name: KAFKA_LOG_RETENTION_HOURS
               value: "24"
             - name: KAFKA_LOG_RETENTION_BYTES

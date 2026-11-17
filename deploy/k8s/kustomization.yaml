@@ -12,6 +12,8 @@ labels:
 
 resources:
   - postgres.yaml
+  - scylla.yaml
+  - seaweedfs.yaml
   - redis.yaml
   - kafka.yaml
   - backend.yaml

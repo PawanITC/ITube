@@ -1,58 +1,78 @@
 package ITubeBackend.service.video;
 
 import ITubeBackend.dto.video.CreateVideo;
+import ITubeBackend.dto.video.MediaUpload;
 import ITubeBackend.dto.video.PlaybackAuthorisationDto;
+import ITubeBackend.dto.video.RenditionRef;
 import ITubeBackend.dto.video.VideoAccessDto;
+import ITubeBackend.dto.video.VideoDeletedEvent;
+import ITubeBackend.dto.video.VideoMediaDto;
 import ITubeBackend.dto.video.VideoSummaryDto;
-import ITubeBackend.dto.video.VideoAssetDto;
-import ITubeBackend.dto.video.VideoStreamInfo;
 import ITubeBackend.dto.video.VideoUploadedEvent;
 import ITubeBackend.entities.ChannelEntity;
 import ITubeBackend.entities.VideoEntity;
 import ITubeBackend.entities.VideoVisibility;
 import ITubeBackend.repository.ChannelRepository;
-import ITubeBackend.repository.HistoryRepository;
 import ITubeBackend.repository.VideoRepository;
 import ITubeBackend.service.entitlement.EntitlementService;
 import ITubeBackend.service.entitlement.PlaybackTokenService;
-import org.jspecify.annotations.NonNull;
+import ITubeBackend.storage.MediaKeys;
+import ITubeBackend.storage.ObjectStorage;
+import ITubeBackend.storage.StorageProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.net.URI;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.function.BiFunction;
 
 
 @Service
 public class VideoService {
+    private static final Logger log = LoggerFactory.getLogger(VideoService.class);
     private static final long MAX_CHUNK_BYTES = 4L * 1024 * 1024;
     private final ChannelRepository channelRepository;
     private final VideoRepository videoRepository;
-    private final HistoryRepository historyRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final EntitlementService entitlementService;
     private final PlaybackTokenService playbackTokenService;
+    private final ObjectStorage storage;
+    private final StorageProperties storageProperties;
+    private final TransactionTemplate transactionTemplate;
 
-    public VideoService(ChannelRepository channelRepository, VideoRepository videoRepository, HistoryRepository historyRepository,
+    public VideoService(ChannelRepository channelRepository, VideoRepository videoRepository,
                         ApplicationEventPublisher eventPublisher, EntitlementService entitlementService,
-                        PlaybackTokenService playbackTokenService) {
+                        PlaybackTokenService playbackTokenService, ObjectStorage storage,
+                        StorageProperties storageProperties, TransactionTemplate transactionTemplate) {
         this.channelRepository = channelRepository;
         this.videoRepository = videoRepository;
-        this.historyRepository = historyRepository;
         this.eventPublisher = eventPublisher;
         this.entitlementService = entitlementService;
         this.playbackTokenService = playbackTokenService;
+        this.storage = storage;
+        this.storageProperties = storageProperties;
+        this.transactionTemplate = transactionTemplate;
     }
 
-    @Transactional
+    /**
+     * Streams the files to object storage first, then records the video in a short transaction, so a
+     * multi-minute upload never holds a database connection. If the insert fails the files are removed.
+     */
     public Long saveVideo(CreateVideo createVideo) {
         if (createVideo.title() == null || createVideo.title().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Video title is required");
         }
-        if (createVideo.video() == null || createVideo.video().length == 0) {
+        if (createVideo.video() == null || createVideo.video().size() == 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A video file is required");
         }
         if (createVideo.duration() == null) {
@@ -61,25 +81,48 @@ public class VideoService {
 
         VideoVisibility visibility = createVideo.visibility() == null ? VideoVisibility.PUBLIC : createVideo.visibility();
         validateTierLevel(visibility, createVideo.requiredTierLevel());
+        if (!channelRepository.existsById(createVideo.channelId())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Channel not found");
+        }
 
-        ChannelEntity channel = channelRepository.findById(createVideo.channelId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Channel not found"));
-
-        VideoEntity video = createVideoEntity(createVideo, visibility, channel);
-        Long videoId = videoRepository.save(video).getVideoId();
-        eventPublisher.publishEvent(new VideoUploadedEvent(videoId));
-        return videoId;
+        String folder = MediaKeys.newVideoFolder();
+        List<String> uploaded = new ArrayList<>();
+        try {
+            String videoKey = MediaKeys.source(folder);
+            upload(videoKey, createVideo.video());
+            uploaded.add(videoKey);
+            String thumbnailKey = null;
+            if (createVideo.thumbnail() != null && createVideo.thumbnail().size() > 0) {
+                thumbnailKey = MediaKeys.thumbnail(folder);
+                upload(thumbnailKey, createVideo.thumbnail());
+                uploaded.add(thumbnailKey);
+            }
+            String finalThumbnailKey = thumbnailKey;
+            return transactionTemplate.execute(status -> {
+                ChannelEntity channel = channelRepository.findById(createVideo.channelId())
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Channel not found"));
+                VideoEntity video = createVideoEntity(createVideo, visibility, channel, videoKey, finalThumbnailKey);
+                Long videoId = videoRepository.save(video).getVideoId();
+                eventPublisher.publishEvent(new VideoUploadedEvent(videoId));
+                return videoId;
+            });
+        } catch (RuntimeException exception) {
+            uploaded.forEach(this::deleteQuietly);
+            throw exception;
+        }
     }
 
-    private static @NonNull VideoEntity createVideoEntity(CreateVideo createVideo, VideoVisibility visibility, ChannelEntity channel) {
+    private static VideoEntity createVideoEntity(CreateVideo createVideo, VideoVisibility visibility, ChannelEntity channel,
+                                                 String videoKey, String thumbnailKey) {
         VideoEntity video = new VideoEntity();
         video.setVisibility(visibility);
         video.setRequiredTierLevel(visibility == VideoVisibility.MEMBERS_ONLY ? createVideo.requiredTierLevel() : null);
         video.setChannel(channel);
-        video.setVideo(createVideo.video());
-        video.setVideoContentType(createVideo.videoContentType());
-        video.setThumbnail(createVideo.thumbnail());
-        video.setThumbnailContentType(createVideo.thumbnailContentType());
+        video.setVideoKey(videoKey);
+        video.setVideoSizeBytes(createVideo.video().size());
+        video.setVideoContentType(createVideo.video().contentType());
+        video.setThumbnailKey(thumbnailKey);
+        video.setThumbnailContentType(thumbnailKey == null ? null : createVideo.thumbnail().contentType());
         video.setTitle(createVideo.title().trim());
         video.setDuration(createVideo.duration());
         video.setProcessingStatus("PROCESSING");
@@ -150,10 +193,8 @@ public class VideoService {
     }
 
     /** Owner-only edit of the video's details. A null thumbnail keeps the current one. */
-    @Transactional
     public VideoSummaryDto updateVideoDetails(Long videoId, Long userId, String title, VideoVisibility visibility,
-                                              Integer requiredTierLevel, byte[] thumbnail, String thumbnailContentType) {
-        requireOwner(videoId, userId);
+                                              Integer requiredTierLevel, MediaUpload thumbnail) {
         if (title == null || title.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Video title is required");
         }
@@ -162,23 +203,51 @@ public class VideoService {
         }
         VideoVisibility newVisibility = visibility == null ? VideoVisibility.PUBLIC : visibility;
         validateTierLevel(newVisibility, requiredTierLevel);
-        VideoEntity video = videoRepository.findById(videoId).orElseThrow();
-        video.setTitle(title.trim());
-        video.setVisibility(newVisibility);
-        video.setRequiredTierLevel(newVisibility == VideoVisibility.MEMBERS_ONLY ? requiredTierLevel : null);
-        if (thumbnail != null && thumbnail.length > 0) {
-            video.setThumbnail(thumbnail);
-            video.setThumbnailContentType(thumbnailContentType);
+        requireOwner(videoId, userId);
+
+        // Upload before the transaction; swap the key inside it; remove whichever file lost afterwards
+        String newThumbnailKey = null;
+        if (thumbnail != null && thumbnail.size() > 0) {
+            String videoKey = videoRepository.findMedia(videoId).map(VideoMediaDto::videoKey).orElse(null);
+            String folder = videoKey == null ? MediaKeys.newVideoFolder() : MediaKeys.folderOf(videoKey);
+            newThumbnailKey = MediaKeys.thumbnail(folder);
+            upload(newThumbnailKey, thumbnail);
         }
-        videoRepository.flush();
-        return videoRepository.findVideoSummaryForOwner(videoId, userId).orElseThrow();
+        String uploadedKey = newThumbnailKey;
+        String[] replacedKey = new String[1];
+        try {
+            VideoSummaryDto summary = transactionTemplate.execute(status -> {
+                VideoEntity video = videoRepository.findById(videoId).orElseThrow();
+                video.setTitle(title.trim());
+                video.setVisibility(newVisibility);
+                video.setRequiredTierLevel(newVisibility == VideoVisibility.MEMBERS_ONLY ? requiredTierLevel : null);
+                if (uploadedKey != null) {
+                    replacedKey[0] = video.getThumbnailKey();
+                    video.setThumbnailKey(uploadedKey);
+                    video.setThumbnailContentType(thumbnail.contentType());
+                }
+                videoRepository.flush();
+                return videoRepository.findVideoSummaryForOwner(videoId, userId).orElseThrow();
+            });
+            if (replacedKey[0] != null) deleteQuietly(replacedKey[0]);
+            return summary;
+        } catch (RuntimeException exception) {
+            if (uploadedKey != null) deleteQuietly(uploadedKey);
+            throw exception;
+        }
     }
 
+    /** The row goes now; stored files and engagement data are cleaned up by video.deleted consumers. */
     @Transactional
     public void deleteVideo(Long videoId, Long userId) {
         requireOwner(videoId, userId);
-        historyRepository.deleteByVideoId(videoId);
+        List<String> keys = new ArrayList<>(videoRepository.findRenditionKeys(videoId));
+        videoRepository.findMedia(videoId).ifPresent(media -> {
+            if (media.videoKey() != null) keys.add(media.videoKey());
+            if (media.thumbnailKey() != null) keys.add(media.thumbnailKey());
+        });
         videoRepository.deleteVideoById(videoId);
+        eventPublisher.publishEvent(new VideoDeletedEvent(videoId, keys));
     }
 
     private void requireOwner(Long videoId, Long userId) {
@@ -210,63 +279,39 @@ public class VideoService {
     }
 
     @Transactional(readOnly = true)
-    public VideoAssetDto getVideoFile(Long videoId) {
-        return videoRepository.findVideoAsset(videoId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Video not found"));
-    }
-
-    @Transactional(readOnly = true)
-    public VideoAssetDto getThumbnail(Long videoId) {
-        return videoRepository.findThumbnailAsset(videoId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Thumbnail not found"));
-    }
-
-    @Transactional(readOnly = true)
     public List<String> getQualities(Long videoId) {
         if (!videoRepository.existsById(videoId)) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Video not found");
         return videoRepository.findRenditionQualities(videoId);
     }
 
     @Transactional(readOnly = true)
-    public VideoAssetDto getRendition(Long videoId, String quality) {
-        return videoRepository.findRendition(videoId, quality)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Video quality not found"));
-    }
-
-    @Transactional(readOnly = true)
-    public VideoStreamInfo getVideoStreamInfo(Long videoId) {
-        return videoRepository.findVideoStreamInfo(videoId)
+    public String getVideoFileKey(Long videoId) {
+        return videoRepository.findMedia(videoId).map(VideoMediaDto::videoKey)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Video not found"));
     }
 
     @Transactional(readOnly = true)
-    public byte[] getVideoChunk(Long videoId, long start, int length) {
-        return videoRepository.findVideoChunk(videoId, Math.toIntExact(start + 1), length)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Video not found"))
-                .content();
+    public String getThumbnailKey(Long videoId) {
+        return videoRepository.findMedia(videoId).map(VideoMediaDto::thumbnailKey)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Thumbnail not found"));
     }
 
     @Transactional(readOnly = true)
-    public VideoStreamInfo getRenditionStreamInfo(Long videoId, String quality) {
-        return videoRepository.findRenditionStreamInfo(videoId, quality)
+    public String getRenditionKey(Long videoId, String quality) {
+        return videoRepository.findRendition(videoId, quality).map(RenditionRef::storageKey)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Video quality not found"));
     }
 
     @Transactional(readOnly = true)
-    public byte[] getRenditionChunk(Long videoId, String quality, long start, int length) {
-        return videoRepository.findRenditionChunk(videoId, quality, Math.toIntExact(start + 1), length)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Video quality not found"))
-                .content();
+    public VideoMediaDto getSourceForTranscoding(Long videoId) {
+        return videoRepository.findMedia(videoId)
+                .filter(media -> media.videoKey() != null)
+                .orElseThrow(() -> new IllegalStateException("Video " + videoId + " has no stored source file"));
     }
 
     @Transactional
-    public void saveRendition(Long videoId, String quality, byte[] bytes) {
-        videoRepository.saveRendition(videoId, quality, bytes);
-    }
-
-    @Transactional
-    public VideoAssetDto getSourceForTranscoding(Long videoId) {
-        return getVideoFile(videoId);
+    public void saveRendition(Long videoId, String quality, String storageKey, long sizeBytes) {
+        videoRepository.saveRendition(videoId, quality, "video/mp4", storageKey, sizeBytes);
     }
 
     @Transactional
@@ -274,14 +319,37 @@ public class VideoService {
         videoRepository.findById(videoId).ifPresent(video -> video.setProcessingStatus(status));
     }
 
-    // Serves one bounded byte range per request so the browser can start playing and seek without downloading the whole file
-    public ResponseEntity<byte[]> streamRange(VideoStreamInfo info, String rangeHeader, boolean openToEveryone,
-                                              BiFunction<Long, Integer, byte[]> readChunk) {
+    /**
+     * Serves a stored file. Normally the browser is redirected to a pre-signed URL so the bytes go
+     * straight from storage (or a CDN in front of it) and never through this backend. Stores that
+     * can't pre-sign fall back to bounded range reads, one 4 MB chunk per request.
+     */
+    public ResponseEntity<byte[]> serveMedia(String key, String rangeHeader, boolean openToEveryone) {
+        if (key == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "File not found");
+        if (storageProperties.redirectPlayback()) {
+            var url = storage.presignedGet(key, storageProperties.presignTtl());
+            if (url.isPresent()) return redirect(url.get(), openToEveryone);
+        }
+        var info = storage.stat(key)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "File not found"));
+        return streamRange(key, info, rangeHeader, openToEveryone);
+    }
+
+    private static ResponseEntity<byte[]> redirect(URI url, boolean openToEveryone) {
+        // The signed URL itself expires, so only let the redirect be cached briefly (and never for paid media)
+        CacheControl cache = openToEveryone ? CacheControl.maxAge(Duration.ofMinutes(5)).cachePublic()
+                : CacheControl.noStore().cachePrivate();
+        return ResponseEntity.status(HttpStatus.FOUND).location(url).cacheControl(cache).build();
+    }
+
+    private ResponseEntity<byte[]> streamRange(String key, ObjectStorage.ObjectInfo info, String rangeHeader,
+                                               boolean openToEveryone) {
         long total = info.length();
-        MediaType contentType = MediaType.parseMediaType(info.contentType());
+        MediaType contentType = info.contentType() == null ? MediaType.APPLICATION_OCTET_STREAM
+                : MediaType.parseMediaType(info.contentType());
         if (rangeHeader == null || rangeHeader.isBlank()) {
             return mediaResponse(HttpStatus.OK, openToEveryone).contentType(contentType).header(HttpHeaders.ACCEPT_RANGES, "bytes")
-                    .body(readChunk.apply(0L, Math.toIntExact(total)));
+                    .body(storage.readRange(key, 0, Math.toIntExact(total)));
         }
 
         long start;
@@ -290,14 +358,14 @@ public class VideoService {
             List<HttpRange> ranges = HttpRange.parseRanges(rangeHeader);
             if (ranges.isEmpty()) throw new IllegalArgumentException("Empty range");
             start = ranges.getFirst().getRangeStart(total);
-            if (start >= total) throw new IllegalArgumentException("Range starts past end of video");
+            if (start >= total) throw new IllegalArgumentException("Range starts past end of file");
             end = Math.min(ranges.getFirst().getRangeEnd(total), start + MAX_CHUNK_BYTES - 1);
         } catch (IllegalArgumentException exception) {
             return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
                     .header(HttpHeaders.CONTENT_RANGE, "bytes */" + total).build();
         }
 
-        byte[] chunk = readChunk.apply(start, Math.toIntExact(end - start + 1));
+        byte[] chunk = storage.readRange(key, start, Math.toIntExact(end - start + 1));
         return mediaResponse(HttpStatus.PARTIAL_CONTENT, openToEveryone).contentType(contentType)
                 .header(HttpHeaders.ACCEPT_RANGES, "bytes")
                 .header(HttpHeaders.CONTENT_RANGE, "bytes " + start + "-" + end + "/" + total)
@@ -310,4 +378,20 @@ public class VideoService {
         return openToEveryone ? builder : builder.cacheControl(CacheControl.noStore().cachePrivate());
     }
 
+    private void upload(String key, MediaUpload upload) {
+        String contentType = upload.contentType() == null ? MediaType.APPLICATION_OCTET_STREAM_VALUE : upload.contentType();
+        try (InputStream in = upload.source().getInputStream()) {
+            storage.put(key, in, upload.size(), contentType);
+        } catch (IOException exception) {
+            throw new UncheckedIOException("Could not read the uploaded file", exception);
+        }
+    }
+
+    private void deleteQuietly(String key) {
+        try {
+            storage.delete(key);
+        } catch (RuntimeException exception) {
+            log.warn("Could not remove orphaned object {}: {}", key, exception.toString());
+        }
+    }
 }

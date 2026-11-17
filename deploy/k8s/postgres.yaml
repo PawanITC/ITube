@@ -1,4 +1,5 @@
-# PostgreSQL 17: accounts, channels, payments and (for now) the video files and renditions.
+# PostgreSQL 17: one schema per domain - identity (accounts), catalog (channels, video metadata) and payments.
+# Video files live in object storage (SeaweedFS/S3) and engagement data in ScyllaDB.
 apiVersion: v1
 kind: Service
 metadata:

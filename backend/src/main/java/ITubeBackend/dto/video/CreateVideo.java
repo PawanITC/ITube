@@ -3,7 +3,8 @@ package ITubeBackend.dto.video;
 import ITubeBackend.entities.VideoVisibility;
 import java.time.LocalTime;
 
-public record CreateVideo(Long channelId, byte[] video, String videoContentType, byte[] thumbnail, String thumbnailContentType, String title, LocalTime duration,
+/** thumbnail may be null. */
+public record CreateVideo(Long channelId, MediaUpload video, MediaUpload thumbnail, String title, LocalTime duration,
                           VideoVisibility visibility, Integer requiredTierLevel) {
 
 }

@@ -36,7 +36,7 @@ From the repo root, double-click **`dev.cmd`**, or run:
 
 The script does the following:
 1. Creates `backend/.env` from `backend/.env.example` the first time, with a random playback signing key. The file is git-ignored and stays on your PC.
-2. Starts Docker Desktop if it isn't running, then PostgreSQL, Redis, Kafka, Grafana and the Stripe webhook forwarder from `docker-compose.yml`.
+2. Starts Docker Desktop if it isn't running, then PostgreSQL, ScyllaDB, SeaweedFS, Redis, Kafka, Grafana and the Stripe webhook forwarder from `docker-compose.yml`.
 3. Saves the Stripe webhook secret into `backend/.env`.
 4. Installs frontend packages if they're missing or out of date.
 5. Opens the backend in its own window and waits until it's healthy, then opens the frontend. The app opens in your browser.
@@ -79,7 +79,9 @@ For History endpoints, the optional H2 profile, and the backend package layout, 
 
 For the Liked videos API, UI, and a beginner walkthrough of its implementation, see [the Liked videos guide](backend/LIKED-VIDEOS.md).
 
-Uploaded videos are kept in PostgreSQL for this first implementation. Kafka schedules background FFmpeg jobs that create 360p and 720p MP4 renditions. The API reports `PROCESSING`, `READY`, or `FAILED`; while processing, the original remains playable. Quality files are also stored in PostgreSQL, so this is suitable for local development/small demos rather than production-scale media storage.
+Uploaded videos, renditions and thumbnails are stored in S3-compatible object storage (SeaweedFS locally, S3 API at http://localhost:8333); PostgreSQL keeps only their keys. Kafka schedules background FFmpeg jobs that create 360p and 720p MP4 renditions. The API reports `PROCESSING`, `READY`, or `FAILED`; while processing, the original remains playable. Playback redirects the browser to a short-lived pre-signed URL, so video bytes don't pass through the backend.
+
+Data is split by domain: PostgreSQL schemas `identity`, `catalog` and `payments`, and ScyllaDB for watch history, likes and comments. See [docs/DATA-ARCHITECTURE.md](docs/DATA-ARCHITECTURE.md). Existing databases are migrated automatically on the next start.
 
 ### 2. Run the frontend (in a second terminal)
 ```bash

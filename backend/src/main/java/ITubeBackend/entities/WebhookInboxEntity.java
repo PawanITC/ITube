@@ -11,7 +11,7 @@ import java.time.OffsetDateTime;
 
 /** A verified Stripe event, stored before Stripe gets its 200 response and processed afterwards. */
 @Entity
-@Table(name = "webhook_inbox")
+@Table(name = "webhook_inbox", schema = "payments")
 public class WebhookInboxEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

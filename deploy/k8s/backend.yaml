@@ -53,7 +53,7 @@ spec:
             - bash
             - -c
             - |
-              for target in postgres:5432 redis:6379 kafka:9092; do
+              for target in postgres:5432 scylla:9042 seaweedfs:8333 redis:6379 kafka:9092; do
                 host="${target%%:*}"; port="${target##*:}"
                 until (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null; do
                   echo "waiting for ${target} ..."; sleep 3
@@ -97,6 +97,21 @@ spec:
               value: "6379"
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: kafka:9092
+            - name: SCYLLA_CONTACT_POINTS
+              value: scylla:9042
+            - name: STORAGE_ENDPOINT
+              value: http://seaweedfs:8333
+            - name: STORAGE_ACCESS_KEY
+              value: itube
+            - name: STORAGE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: itube-secrets
+                  key: storage-secret-key
+            # Browsers reach this cluster only through a port-forward to the frontend, so they can't follow a
+            # pre-signed URL to http://seaweedfs:8333: stream through the backend. Turn back on with S3 + CloudFront.
+            - name: ITUBE_STORAGE_REDIRECT_PLAYBACK
+              value: "false"
             - name: FFMPEG_PATH
               value: ffmpeg
             # --- App settings ---
@@ -162,8 +177,8 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 5
           resources:
-            # Heap = 75% of the limit (JAVA_TOOL_OPTIONS in the image). Uploads, base64 renditions
-            # (up to 100 MB Kafka records, 256 MB producer buffer) and FFmpeg all need headroom.
+            # Heap = 75% of the limit (JAVA_TOOL_OPTIONS in the image). Uploads and renditions are streamed
+            # to object storage, not held in memory; FFmpeg still needs headroom.
             requests:
               cpu: 500m
               memory: 1536Mi

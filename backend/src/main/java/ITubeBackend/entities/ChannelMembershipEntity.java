@@ -15,7 +15,7 @@ import java.time.OffsetDateTime;
  * Stripe is the source of truth; this row is rebuilt from Stripe on every relevant webhook.
  */
 @Entity
-@Table(name = "channel_memberships")
+@Table(name = "channel_memberships", schema = "payments")
 public class ChannelMembershipEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

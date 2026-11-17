@@ -1,5 +1,9 @@
 # History feature
 
+> **Storage has moved.** Watch history now lives in ScyllaDB (`watch_history_by_user`), not the PostgreSQL
+> `watch_history` table, and entry ids are UUIDs. See [docs/DATA-ARCHITECTURE.md](../docs/DATA-ARCHITECTURE.md).
+> The PostgreSQL notes below describe the original implementation.
+
 ## Run locally
 
 The default configuration now uses the team's PostgreSQL infrastructure. Start it

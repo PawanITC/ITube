@@ -145,8 +145,6 @@ resource "docker_container" "kafka" {
     "KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0",
     "KAFKA_NUM_PARTITIONS=3",
     "KAFKA_LOG_DIRS=/var/lib/kafka/data",
-    # Renditions go through Kafka to the sink connector, so allow messages up to 100MB
-    "KAFKA_MESSAGE_MAX_BYTES=104857600",
   ]
 
   volumes {
@@ -157,6 +155,66 @@ resource "docker_container" "kafka" {
   ports {
     internal = 9092
     external = 9092
+  }
+
+  networks_advanced {
+    name = docker_network.database.name
+  }
+}
+
+# ScyllaDB: engagement data (watch history, likes, comments). Same settings as docker-compose.yml.
+resource "docker_image" "scylla" {
+  name         = "scylladb/scylla:6.2"
+  keep_locally = true
+}
+
+resource "docker_container" "scylla" {
+  image = docker_image.scylla.image_id
+  name  = "itube-scylla"
+  # broadcast-rpc-address: the driver reconnects via localhost, not the container IP
+  command = ["--smp", "1", "--memory", "1G", "--overprovisioned", "1", "--developer-mode", "1",
+  "--rpc-address", "0.0.0.0", "--broadcast-rpc-address", "127.0.0.1"]
+
+  volumes {
+    volume_name    = "scylla_data"
+    container_path = "/var/lib/scylla"
+  }
+
+  ports {
+    internal = 9042
+    external = 9042
+  }
+
+  networks_advanced {
+    name = docker_network.database.name
+  }
+}
+
+# SeaweedFS: S3-compatible storage for video files, renditions and thumbnails (S3 API on 8333).
+# The AWS_* variables are its admin S3 credentials; they match the backend's defaults.
+resource "docker_image" "seaweedfs" {
+  name         = "chrislusf/seaweedfs:4.51"
+  keep_locally = true
+}
+
+resource "docker_container" "seaweedfs" {
+  image   = docker_image.seaweedfs.image_id
+  name    = "itube-seaweedfs"
+  command = ["server", "-dir=/data", "-s3", "-s3.port=8333", "-master.volumeSizeLimitMB=1024", "-volume.max=0"]
+
+  env = [
+    "AWS_ACCESS_KEY_ID=itube",
+    "AWS_SECRET_ACCESS_KEY=itube-dev-password",
+  ]
+
+  volumes {
+    volume_name    = "seaweedfs_data"
+    container_path = "/data"
+  }
+
+  ports {
+    internal = 8333
+    external = 8333
   }
 
   networks_advanced {

@@ -11,11 +11,11 @@ import java.util.Optional;
 public interface AccountRepository extends JpaRepository<AccountEntity, Long> {
     Optional<AccountEntity> findEntityByEmail(String email);
 
-    @Query(value = "SELECT user_id, firstname, lastname, email FROM accounts WHERE email = :email",
+    @Query(value = "SELECT user_id, firstname, lastname, email FROM identity.accounts WHERE email = :email",
             nativeQuery = true)
     Optional<AccountDto> findDtoByEmail(@Param("email") String email);
 
-    @Query(value = "SELECT user_id, firstname, lastname, email FROM accounts WHERE user_id = :id",
+    @Query(value = "SELECT user_id, firstname, lastname, email FROM identity.accounts WHERE user_id = :id",
             nativeQuery = true)
     AccountDto findDtoById(@Param("id") Long id);
 

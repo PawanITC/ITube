@@ -10,7 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "membership_perks")
+@Table(name = "membership_perks", schema = "payments")
 public class MembershipPerkEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

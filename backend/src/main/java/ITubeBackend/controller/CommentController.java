@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -28,8 +29,10 @@ public class CommentController {
     }
 
     @GetMapping
-    public List<CommentDto> getComments(@PathVariable Long videoId) {
-        return commentService.getComments(videoId);
+    public List<CommentDto> getComments(@PathVariable Long videoId,
+                                        @RequestParam(value = "limit", defaultValue = "100") int limit) {
+        // Newest first, capped (default 100, max 500) so a popular video never returns its whole history
+        return commentService.getComments(videoId, limit);
     }
 
     @PostMapping
