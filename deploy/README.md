@@ -5,7 +5,8 @@ frontend images, pushes them to Amazon ECR and deploys the whole app to the EKS 
 (account `160198385987`, region `eu-west-2`), namespace `itube`.
 
 The AWS side (EKS cluster, namespace `itube`, `gp3` StorageClass, ECR repositories, deploy IAM role) is created
-by the separate infra repository. **Until that is applied, the deploy job fails** at the AWS login or `kubectl` step.
+with Terraform in [`terraform/`](terraform) (see its README). **Until that is applied, the deploy job fails** at
+the AWS login or `kubectl` step.
 
 ## What gets deployed
 
