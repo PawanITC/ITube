@@ -39,7 +39,7 @@ export default function ChannelPage({ channelId, onHome, onSelectVideo, onSelect
         method: channel.subscribed ? 'DELETE' : 'POST',
         credentials: 'include',
       });
-      if (response.status === 401) throw new Error('Click Random user to create an account before subscribing.');
+      if (response.status === 401) throw new Error('Sign in to subscribe to this channel.');
       if (!response.ok) {
         const problem = await response.json().catch(() => null);
         throw new Error(problem?.detail || 'Could not update your subscription.');

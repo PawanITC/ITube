@@ -48,15 +48,6 @@ public class DevSessionController {
         return devSession;
     }
 
-    // REMOVE LATER - UNTIL LOGIN IS COMPLETE
-    @PostMapping("/api/session/dev/random")
-    public DevSessionDto createRandomDevSession(HttpSession session) {
-        DevSessionDto devSession = accountService.createRandomDevSession();
-        session.setAttribute("userId", devSession.userId());
-        session.setAttribute("channelId", devSession.channelId());
-        return devSession;
-    }
-
     // REMOVE LATER - UNTIL LOGIN IS COMPLETE. Fixed "Demo Viewer" account used by the /demo page.
     @PostMapping("/api/session/dev/viewer")
     public DevSessionDto createDevViewerSession(HttpSession session) {

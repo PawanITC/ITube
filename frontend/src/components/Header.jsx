@@ -1,10 +1,15 @@
 import { useState } from 'react';
 import Icon from './Icon';
 
-export default function Header({ onSearch, onCreatePage, onSessionStarted, onSelectChannel }) {
+function displayName(session) {
+  if (!session) return '';
+  const fullName = [session.firstname, session.lastname].filter(Boolean).join(' ');
+  return fullName || session.channelName || session.email || 'Your account';
+}
+
+export default function Header({ session, onSearch, onCreatePage, onSessionStarted, onSelectChannel, onOpenAuth, onSignOut }) {
   const [query, setQuery] = useState('');
   const [searchType, setSearchType] = useState('videos');
-  const [session, setSession] = useState(null);
   const [sessionError, setSessionError] = useState('');
   const [startingSession, setStartingSession] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -13,37 +18,16 @@ export default function Header({ onSearch, onCreatePage, onSessionStarted, onSel
   const [channelsError, setChannelsError] = useState('');
   const [openingCreate, setOpeningCreate] = useState(false);
   const [createError, setCreateError] = useState('');
-  const [creatingRandomUser, setCreatingRandomUser] = useState(false);
-  const [randomUserFeedback, setRandomUserFeedback] = useState('');
-  const [randomUserError, setRandomUserError] = useState('');
   function submit(event) {
     event.preventDefault();
     onSearch(query, searchType);
   }
 
-  async function createRandomUser() {
-    setCreatingRandomUser(true);
-    setRandomUserFeedback('');
-    setRandomUserError('');
-    try {
-      const response = await fetch('/api/session/dev/random', {
-        method: 'POST',
-        credentials: 'include',
-      });
-      if (!response.ok) throw new Error('Could not create a user. Is the backend and database running?');
-      const newSession = await response.json();
-      setSession(newSession);
-      onSessionStarted(newSession);
-      setRandomUserFeedback(`Created ${newSession.channelName} for ${newSession.email}`);
-    } catch (error) {
-      setRandomUserError(error.message || 'Could not create a random user and channel.');
-    } finally {
-      setCreatingRandomUser(false);
-    }
-  }
 // REMOVE LATER : UNTIL LOGIN IS COMPLETE
   async function startDevSession(event) {
     event.preventDefault();
+    // Never swap a real signed-in account for the shared dev account.
+    if (session) return;
     setStartingSession(true);
     setSessionError('');
     try {
@@ -53,7 +37,6 @@ export default function Header({ onSearch, onCreatePage, onSessionStarted, onSel
       });
       if (!response.ok) throw new Error(`Session request failed (${response.status})`);
       const newSession = await response.json();
-      setSession(newSession);
       onSessionStarted(newSession);
     } catch (error) {
       setSessionError('Could not start the dev session. Is the backend and database running?');
@@ -72,7 +55,7 @@ export default function Header({ onSearch, onCreatePage, onSessionStarted, onSel
     try {
       const response = await fetch('/api/channels/mine', { credentials: 'include' });
       if (response.status === 401) {
-        setChannelsError('Click the ITube logo to start a dev session.');
+        setChannelsError('Sign in to see your channels.');
         setChannels([]);
         return;
       }
@@ -92,7 +75,7 @@ export default function Header({ onSearch, onCreatePage, onSessionStarted, onSel
     try {
       const response = await fetch('/api/session/current', { credentials: 'include' });
       if (response.status === 401) {
-        setCreateError('Click the ITube logo first to start a session.');
+        onOpenAuth('login');
         return;
       }
       if (!response.ok) throw new Error(`Session request failed (${response.status})`);
@@ -119,10 +102,6 @@ export default function Header({ onSearch, onCreatePage, onSessionStarted, onSel
           <input value={query} onChange={e => setQuery(e.target.value)} placeholder={`Search ${searchType}`} aria-label="Search" />
           <button type="submit" aria-label={`Search ${searchType}`}><Icon name="search" /></button>
         </form>
-        <button className="icon-button random-user-button" type="button" onClick={createRandomUser} disabled={creatingRandomUser} title="Create a random user and channel">
-          <Icon name="userPlus" size={20} /><span>{creatingRandomUser ? 'Creating…' : 'Random user'}</span>
-        </button>
-        {(randomUserFeedback || randomUserError) && <div className={`random-user-feedback${randomUserError ? ' is-error' : ''}`} role={randomUserError ? 'alert' : 'status'}>{randomUserError || randomUserFeedback}</div>}
       </div>
       <div className="header-actions">
         <button className="icon-button create-button" onClick={openCreatePage} disabled={openingCreate}>
@@ -130,19 +109,25 @@ export default function Header({ onSearch, onCreatePage, onSessionStarted, onSel
         </button>
         {createError && <div className="create-error" role="alert">{createError}</div>}
         <button className="icon-button notification-button" aria-label="Notifications"><Icon name="bell" /><i /></button>
-        <button
-          className="profile-avatar"
-          aria-label={session ? `Signed in as ${session.email}` : 'Your account'}
-          aria-expanded={profileOpen}
-          aria-haspopup="menu"
-          title={session ? `${session.email} · ${session.channelName}` : sessionError || (startingSession ? 'Starting dev session…' : 'Your account')}
-          onClick={toggleProfileMenu}
-        >{startingSession ? '…' : session ? 'D' : 'J'}</button>
-        {profileOpen && (
-          <div className="profile-menu" role="menu" aria-label="Your channels">
+        {session ? (
+          <button
+            className="profile-avatar"
+            aria-label={`Account menu for ${displayName(session)}`}
+            aria-expanded={profileOpen}
+            aria-haspopup="menu"
+            title={session.email}
+            onClick={toggleProfileMenu}
+          >{displayName(session).charAt(0).toUpperCase()}</button>
+        ) : (
+          <button className="sign-in-button" type="button" onClick={() => onOpenAuth('login')} title={sessionError || undefined} disabled={startingSession}>
+            <Icon name="user" size={18} /><span>{startingSession ? 'Starting…' : 'Sign in'}</span>
+          </button>
+        )}
+        {session && profileOpen && (
+          <div className="profile-menu" role="menu" aria-label="Account">
             <div className="profile-menu-header">
-              <span className="profile-avatar menu-avatar">{session ? 'D' : 'J'}</span>
-              <div><strong>{session ? 'Demo User' : 'Your account'}</strong><span>{session?.email || 'ITube dev account'}</span></div>
+              <span className="profile-avatar menu-avatar">{displayName(session).charAt(0).toUpperCase()}</span>
+              <div><strong>{displayName(session)}</strong><span>{session.email}</span></div>
             </div>
             <div className="profile-menu-divider" />
             <h2>Your channels</h2>
@@ -155,6 +140,10 @@ export default function Header({ onSearch, onCreatePage, onSessionStarted, onSel
                 <span>{channel.channelName}</span>
               </a>
             ))}
+            <div className="profile-menu-divider" />
+            <button type="button" className="profile-menu-action" role="menuitem" onClick={() => { setProfileOpen(false); onSignOut(); }}>
+              <Icon name="signOut" size={20} /><span>Sign out</span>
+            </button>
           </div>
         )}
       </div>

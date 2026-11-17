@@ -140,9 +140,7 @@ export default function Demo({ onHome }) {
         <p className="demo-identity">You are: <strong>{identity.loading ? '…' : roleLabel}</strong></p>
         <div className="history-actions">
           <button type="button" className="history-button" disabled={!!busy || isCreator} onClick={() => switchTo('/api/session/dev')}>Be the creator</button>
-          <button type="button" className="history-button" disabled={!!busy || identity.role === 'viewer'} onClick={() => switchTo('/api/session/dev/viewer')}>Be the viewer</button>
-          <button type="button" className="history-button" disabled={!!busy} onClick={() => switchTo('/api/session/dev/random')}>New random user</button>
-        </div>
+          <button type="button" className="history-button" disabled={!!busy || identity.role === 'viewer'} onClick={() => switchTo('/api/session/dev/viewer')}>Be the viewer</button>        </div>
       </Section>
 
       <Section number="2" title="Creators set up paid membership tiers">

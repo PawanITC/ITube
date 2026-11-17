@@ -12,6 +12,8 @@ import ChannelGrid from './components/Channel/ChannelGrid';
 import ChannelPage from './components/Channel/ChannelPage';
 import MembershipsPage from './components/Membership/MembershipsPage';
 import CheckoutCompletePage from './components/Membership/CheckoutCompletePage';
+import Auth from './pages/Auth';
+import { fetchCurrentUser, logout } from './api/auth';
 import './App.css';
 
 // Development-only showcase page. import.meta.env.DEV is false in production builds, so Vite drops
@@ -31,6 +33,8 @@ function readRoute() {
   if (window.location.pathname === '/upload') return { page: 'upload', videoId: null };
   if (window.location.pathname === '/memberships') return { page: 'memberships' };
   if (window.location.pathname === '/memberships/checkout-complete') return { page: 'checkout-complete' };
+  if (window.location.pathname === '/login') return { page: 'auth', mode: 'login' };
+  if (window.location.pathname === '/register') return { page: 'auth', mode: 'register' };
   if (Demo && window.location.pathname === '/demo') return { page: 'demo' };
   return { page: 'home', videoId: null };
 }
@@ -51,15 +55,14 @@ function App() {
   // Restore an existing server session after a page reload so signed-in-only UI (like My Videos) shows.
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/session/current', { credentials: 'include' })
-      .then(response => (response.ok ? response.json() : null))
+    fetchCurrentUser()
       .then(current => { if (!cancelled && current) setActiveSession(existing => existing ?? current); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
-    if (['upload', 'history', 'liked-videos', 'my-videos', 'edit-video'].includes(route.page)) return;
+    if (['auth', 'upload', 'history', 'liked-videos', 'my-videos', 'edit-video'].includes(route.page)) return;
     let cancelled = false;
     setVideosLoading(true);
     fetch('/api/videos')
@@ -164,6 +167,25 @@ function App() {
     setRoute({ page: 'memberships' });
   }
 
+  function openAuth(mode) {
+    window.history.pushState({}, '', mode === 'register' ? '/register' : '/login');
+    setRoute({ page: 'auth', mode });
+  }
+
+  function handleSignedIn(user) {
+    setActiveSession(user);
+    returnHome();
+  }
+
+  async function handleSignOut() {
+    try {
+      await logout();
+    } finally {
+      setActiveSession(null);
+      returnHome();
+    }
+  }
+
   function openChannel(channelId) {
     window.history.pushState({}, '', `/channel/${channelId}`);
     setRoute({ page: 'channel', channelId });
@@ -171,8 +193,10 @@ function App() {
 
   return (
     <div className="app-shell" id="home">
-      <Header onSearch={handleSearch} onCreatePage={openUploadPage} onSessionStarted={setActiveSession} onSelectChannel={openChannel} />
-      {route.page === 'upload' ? (
+      {route.page !== 'auth' && <Header session={activeSession} onSearch={handleSearch} onCreatePage={openUploadPage} onSessionStarted={setActiveSession} onSelectChannel={openChannel} onOpenAuth={openAuth} onSignOut={handleSignOut} />}
+      {route.page === 'auth' ? (
+        <Auth key={route.mode} mode={route.mode} onSignedIn={handleSignedIn} onSwitchMode={openAuth} onHome={returnHome} />
+      ) : route.page === 'upload' ? (
         <main className="upload-main"><UploadVideoPage session={uploadSession} onCancel={returnHome} /></main>
       ) : route.page === 'edit-video' ? (
         <main className="upload-main"><EditVideoPage key={route.videoId} videoId={route.videoId} onBack={openMyVideos} onDeleted={openMyVideos} /></main>

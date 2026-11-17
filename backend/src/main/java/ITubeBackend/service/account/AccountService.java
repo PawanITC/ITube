@@ -11,7 +11,6 @@ import ITubeBackend.security.PasswordHasher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.UUID;
 
 @Service
 public class AccountService {
@@ -66,28 +65,5 @@ public class AccountService {
                 });
 
         return new DevSessionDto(account.userId(), account.email(), channel.channelId(), channel.channelName());
-    }
-
-    // REMOVE LATER - UNTIL LOGIN IS COMPLETE
-    @Transactional
-    public DevSessionDto createRandomDevSession() {
-        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
-        String email = "dev-" + suffix + "@itube.local";
-        AccountEntity accountEntity = new AccountEntity();
-        accountEntity.setFirstname("Dev");
-        accountEntity.setLastname(suffix);
-        accountEntity.setEmail(email);
-        accountEntity.setPasswordHash(passwordHasher.hash(UUID.randomUUID().toString()));
-        accountEntity = accountRepository.save(accountEntity);
-
-        String channelName = "Channel " + suffix;
-        ChannelEntity channelEntity = new ChannelEntity();
-        channelEntity.setUser(accountEntity);
-        channelEntity.setChannelName(channelName);
-        channelEntity = channelRepository.save(channelEntity);
-
-        AccountDto account = accountRepository.findDtoByEmail(email).orElseThrow();
-        return new DevSessionDto(account.userId(), account.email(),
-                channelEntity.getChannelId(), channelName);
     }
 }
