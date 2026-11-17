@@ -16,6 +16,7 @@ namespaced objects (no Namespace, StorageClass, RBAC, Ingress or LoadBalancer).
 | Workload | Kind | Image | Service | Storage |
 |---|---|---|---|---|
 | `postgres` | StatefulSet | `postgres:17-alpine` | `postgres:5432` (headless) | PVC `data-postgres-0`, 20Gi `gp3` |
+| `scylla` | StatefulSet, 1 node (developer mode) | `scylladb/scylla:6.2` | `scylla:9042` (headless) | PVC `data-scylla-0`, 20Gi `gp3` |
 | `redis` | Deployment | `redis:7-alpine` | `redis:6379` | none (sessions are lost on restart) |
 | `kafka` | StatefulSet, single-node KRaft | `apache/kafka:4.0.0` | `kafka:9092` (headless) | PVC `data-kafka-0`, 5Gi `gp3` |
 | `backend` | Deployment (1 replica, Recreate) | `eks-lab/itube-backend:<git sha>` | `backend:8080` | `/tmp` emptyDir (3Gi) for uploads/FFmpeg |
@@ -27,27 +28,34 @@ namespaced objects (no Namespace, StorageClass, RBAC, Ingress or LoadBalancer).
   nginx proxies `/api/` to `http://backend:8080`, exactly like the Vite dev proxy, so the browser sees one origin.
   It allows 501 MB uploads, streams request bodies (`proxy_request_buffering off`), passes `Range` requests through
   for video streaming and falls back to `index.html` for client-side routes.
+- **Media files** (videos, renditions, thumbnails) are in the S3 bucket from [`terraform/storage.tf`](terraform/storage.tf),
+  not in the cluster. The backend runs as ServiceAccount `backend`, which EKS Pod Identity maps to an IAM role for
+  that bucket, so there are no S3 keys. Playback redirects browsers to pre-signed S3 URLs.
+  SeaweedFS (the local S3 stand-in) only exists in the [`k8s-local`](k8s-local) overlay.
 - The Secret `itube-secrets` is **not** in the manifests; the workflow creates it from GitHub secrets.
-- All pods run as non-root with `allowPrivilegeEscalation: false`, all capabilities dropped and
-  `seccompProfile: RuntimeDefault` (passes Pod Security `baseline` and `restricted`). Volume permissions for
-  Postgres (UID 70) and Kafka (UID 1000) are handled with `fsGroup`, not root init containers.
+- All pods except ScyllaDB run as non-root with `allowPrivilegeEscalation: false`, all capabilities
+  dropped and `seccompProfile: RuntimeDefault` (Pod Security `restricted`). The ScyllaDB image
+  starts as root, so the namespace enforces `baseline` and only warns/audits on `restricted`
+  ([`terraform/kubernetes.tf`](terraform/kubernetes.tf)). Volume permissions for Postgres (UID 70) and Kafka
+  (UID 1000) are handled with `fsGroup`, not root init containers.
 
 ### Resource budget
 
-Two t3.medium nodes, shared with the system add-ons. The namespace stays well inside the agreed budget
-(<= 2.5 vCPU / 4.5 GiB requests).
+Two t3.large nodes (8 GiB each), shared with the system add-ons. Adding ScyllaDB took the requests past what two
+t3.medium nodes (~3.3 GiB allocatable each) can schedule.
 
 | Workload | CPU request | CPU limit | Memory request | Memory limit |
 |---|---|---|---|---|
 | backend | 500m | 1500m | 1536Mi | 2560Mi |
 | postgres | 250m | 1 | 512Mi | 1Gi |
+| scylla (`--memory 1G`) | 500m | 1 | 1536Mi | 2Gi |
 | kafka (heap 256-512 MB) | 250m | 1 | 768Mi | 1Gi |
 | redis | 50m | 250m | 64Mi | 256Mi |
 | frontend | 50m | 250m | 64Mi | 128Mi |
-| **Total** | **1100m** | 4 | **2944Mi (~2.9 GiB)** | ~4.9 GiB |
+| **Total** | **1600m** | 5 | **4480Mi (~4.4 GiB)** | ~6.9 GiB |
 
-The backend init container (waits for Postgres, Redis and Kafka) requests 10m / 16Mi and only runs before the
-backend starts.
+The backend init container (waits for Postgres, ScyllaDB, Redis and Kafka) requests 10m / 16Mi and
+only runs before the backend starts.
 
 ### OpenTelemetry
 

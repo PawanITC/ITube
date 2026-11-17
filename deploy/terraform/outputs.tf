@@ -14,3 +14,13 @@ output "ecr_repository_urls" {
 output "kubeconfig_command" {
   value = "aws eks update-kubeconfig --region ${var.region} --name ${module.eks.cluster_name}"
 }
+
+output "media_bucket_name" {
+  description = "S3 media bucket; must equal STORAGE_BUCKET in deploy/k8s/backend.yaml."
+  value       = aws_s3_bucket.media.bucket
+}
+
+output "backend_storage_role_arn" {
+  description = "IAM role the backend service account assumes (EKS Pod Identity) to reach the media bucket."
+  value       = aws_iam_role.backend_storage.arn
+}

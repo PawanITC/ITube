@@ -171,7 +171,6 @@ jobs:
           ITUBE_PLAYBACK_SIGNING_KEY: ${{ secrets.ITUBE_PLAYBACK_SIGNING_KEY }}
           ITUBE_STRIPE_SECRET_KEY: ${{ secrets.ITUBE_STRIPE_SECRET_KEY }}
           ITUBE_STRIPE_WEBHOOK_SECRET: ${{ secrets.ITUBE_STRIPE_WEBHOOK_SECRET }}
-          ITUBE_STORAGE_SECRET_KEY: ${{ secrets.ITUBE_STORAGE_SECRET_KEY }}
         run: |
           set -euo pipefail
           # Values go through files (mode 600), never through command-line arguments or the log
@@ -180,13 +179,7 @@ jobs:
           umask 077
           printf '%s' "${ITUBE_DB_PASSWORD}" > "${secret_dir}/db-password"
           printf '%s' "${ITUBE_PLAYBACK_SIGNING_KEY}" > "${secret_dir}/playback-signing-key"
-          # SeaweedFS S3 admin secret key (also the backend's storage secret key)
-          if [ -n "${ITUBE_STORAGE_SECRET_KEY}" ]; then
-            printf '%s' "${ITUBE_STORAGE_SECRET_KEY}" > "${secret_dir}/storage-secret-key"
-          else
-            echo "::warning title=ITUBE_STORAGE_SECRET_KEY not set::Using the database password for SeaweedFS. Add an ITUBE_STORAGE_SECRET_KEY repository secret (8+ characters)."
-            printf '%s' "${ITUBE_DB_PASSWORD}" > "${secret_dir}/storage-secret-key"
-          fi
+          # No object storage keys: the backend reaches S3 with its EKS Pod Identity role
           # Optional Stripe keys: only added when set (the Deployment references them with optional: true)
           if [ -n "${ITUBE_STRIPE_SECRET_KEY}" ]; then
             printf '%s' "${ITUBE_STRIPE_SECRET_KEY}" > "${secret_dir}/stripe-secret-key"
@@ -241,7 +234,6 @@ jobs:
           set -euo pipefail
           kubectl -n "${K8S_NAMESPACE}" rollout status statefulset/postgres --timeout=300s
           kubectl -n "${K8S_NAMESPACE}" rollout status statefulset/scylla --timeout=300s
-          kubectl -n "${K8S_NAMESPACE}" rollout status statefulset/seaweedfs --timeout=180s
           kubectl -n "${K8S_NAMESPACE}" rollout status deployment/redis --timeout=180s
           kubectl -n "${K8S_NAMESPACE}" rollout status statefulset/kafka --timeout=300s
           kubectl -n "${K8S_NAMESPACE}" rollout status deployment/backend --timeout=600s

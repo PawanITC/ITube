@@ -23,7 +23,7 @@ module "eks" {
     }
     kube-proxy = {}
     coredns    = {}
-    # Backs the gp3 StorageClass used by the Postgres and Kafka PVCs
+    # Backs the gp3 StorageClass used by the Postgres, ScyllaDB and Kafka PVCs
     aws-ebs-csi-driver = {
       pod_identity_association = [{
         role_arn        = aws_iam_role.ebs_csi.arn

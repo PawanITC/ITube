@@ -22,9 +22,12 @@ resource "kubernetes_namespace_v1" "app" {
   metadata {
     name = var.namespace
     labels = {
-      # All ITube pods already satisfy the restricted Pod Security profile
-      "pod-security.kubernetes.io/enforce" = "restricted"
+      # baseline, not restricted: the ScyllaDB image starts as root (its supervisord drops to the scylla user
+      # itself) and keeps the default capabilities, which restricted rejects. Everything else (backend,
+      # frontend, Postgres, Redis, Kafka) still meets restricted; warn/audit keep that visible.
+      "pod-security.kubernetes.io/enforce" = "baseline"
       "pod-security.kubernetes.io/warn"    = "restricted"
+      "pod-security.kubernetes.io/audit"   = "restricted"
     }
   }
 

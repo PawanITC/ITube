@@ -1,5 +1,16 @@
-# Spring Boot API + FFmpeg transcode worker (Kafka consumer). One replica: uploads are stored in
-# PostgreSQL and the transcode worker is not designed to be scaled out yet.
+# Spring Boot API + FFmpeg transcode worker (Kafka consumer). One replica: the transcode worker is not
+# designed to be scaled out yet.
+# Media goes to the S3 bucket from deploy/terraform/storage.tf. The pod gets AWS credentials through EKS Pod
+# Identity: Terraform binds the IAM role to the ServiceAccount below, so no access keys are stored anywhere.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backend # must match backend_service_account in deploy/terraform/variables.tf
+  labels:
+    app.kubernetes.io/name: backend
+# The backend never calls the Kubernetes API. Pod Identity mounts its own token, independent of this setting.
+automountServiceAccountToken: false
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -34,6 +45,7 @@ spec:
       labels:
         app.kubernetes.io/name: backend
     spec:
+      serviceAccountName: backend
       automountServiceAccountToken: false
       enableServiceLinks: false
       terminationGracePeriodSeconds: 45
@@ -53,7 +65,7 @@ spec:
             - bash
             - -c
             - |
-              for target in postgres:5432 scylla:9042 seaweedfs:8333 redis:6379 kafka:9092; do
+              for target in postgres:5432 scylla:9042 redis:6379 kafka:9092; do
                 host="${target%%:*}"; port="${target##*:}"
                 until (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null; do
                   echo "waiting for ${target} ..."; sleep 3
@@ -99,19 +111,26 @@ spec:
               value: kafka:9092
             - name: SCYLLA_CONTACT_POINTS
               value: scylla:9042
+            # --- Object storage: AWS S3 (the media_bucket_name output of deploy/terraform) ---
+            - name: STORAGE_BUCKET
+              value: itube-media-160198385987
+            - name: STORAGE_REGION
+              value: eu-west-2
+            # Empty = the AWS S3 endpoint (application.properties defaults to local SeaweedFS)
             - name: STORAGE_ENDPOINT
-              value: http://seaweedfs:8333
+              value: ""
+            # Empty keys = the AWS default credential chain, i.e. the Pod Identity role
             - name: STORAGE_ACCESS_KEY
-              value: itube
+              value: ""
             - name: STORAGE_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: itube-secrets
-                  key: storage-secret-key
-            # Browsers reach this cluster only through a port-forward to the frontend, so they can't follow a
-            # pre-signed URL to http://seaweedfs:8333: stream through the backend. Turn back on with S3 + CloudFront.
-            - name: ITUBE_STORAGE_REDIRECT_PLAYBACK
+              value: ""
+            - name: STORAGE_PATH_STYLE
               value: "false"
+            # Terraform owns the bucket; the role may not create buckets
+            - name: STORAGE_CREATE_BUCKET
+              value: "false"
+            # Playback redirects browsers to pre-signed S3 URLs (application.properties default), so video
+            # bytes don't pass through the backend.
             - name: FFMPEG_PATH
               value: ffmpeg
             # --- App settings ---

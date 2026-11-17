@@ -50,6 +50,10 @@ spec:
             - "1"
             - --memory
             - 1G
+            # Seastar holds back ~1.5 GiB for the OS by default, leaving <1G under the 2Gi limit, so it refuses to
+            # start ("insufficient physical memory"). 512M covers the container's other processes.
+            - --reserve-memory
+            - 512M
             - --overprovisioned
             - "1"
             - --developer-mode

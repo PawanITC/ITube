@@ -26,9 +26,12 @@ variable "vpc_cidr" {
 }
 
 variable "node_instance_type" {
-  description = "Instance type of the managed node group (deploy/README.md budgets for 2 x t3.medium)."
+  # The pods in deploy/k8s request ~4.4 GiB of memory (ScyllaDB 1.5 GiB, backend 1.5 GiB, Kafka 768 MiB,
+  # Postgres 512 MiB, Redis, frontend) before system pods. 2 x t3.medium (~3.3 GiB allocatable each) leaves
+  # no headroom, and the EBS-backed StatefulSets are pinned to their volume's AZ.
+  description = "Instance type of the managed node group (8 GiB t3.large: room for Postgres + ScyllaDB + Kafka)."
   type        = string
-  default     = "t3.medium"
+  default     = "t3.large"
 }
 
 variable "node_count" {
@@ -80,4 +83,22 @@ variable "ecr_keep_images" {
   description = "Number of most recent images kept per ECR repository; older ones are expired."
   type        = number
   default     = 30
+}
+
+variable "backend_service_account" {
+  description = "Kubernetes service account of the backend pod; the media bucket role is bound to it through EKS Pod Identity."
+  type        = string
+  default     = "backend"
+}
+
+variable "media_bucket_name" {
+  description = "S3 bucket for video files, renditions and thumbnails. null = itube-media-<account id>."
+  type        = string
+  default     = null
+}
+
+variable "media_bucket_force_destroy" {
+  description = "Let `terraform destroy` delete the media bucket even when it still holds objects (dev only)."
+  type        = bool
+  default     = true
 }
