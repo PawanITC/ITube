@@ -166,7 +166,7 @@ spec:
           resources:
             # Heap = 75% of the limit (JAVA_TOOL_OPTIONS in the image)
             requests:
-              cpu: 500m
+              cpu: 250m # Leave room for rolling deployments on the two-node dev cluster.
               memory: 768Mi
             limits:
               cpu: "2"

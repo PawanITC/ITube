@@ -232,7 +232,8 @@ jobs:
             | kubectl apply -f -)"
           echo "${result}"
           changed=false
-          if printf '%s' "${result}" | grep -qE ' (configured|created)$'; then changed=true; fi
+          # New deployments already read a newly created Secret. Restart only existing consumers.
+          if printf '%s' "${result}" | grep -qE ' configured$'; then changed=true; fi
 
           # Cloudflare Tunnel (deploy/cloudflare): publish the app only when the token is configured
           if [ -n "${CLOUDFLARE_TUNNEL_TOKEN}" ]; then
@@ -280,8 +281,11 @@ jobs:
           # Pods read Secrets only at start-up: restart the services when it changed
           if [ "${SECRET_CHANGED}" = "true" ]; then
             echo "Secret itube-secrets changed, restarting the services"
-            kubectl -n "${K8S_NAMESPACE}" rollout restart deployment/identity deployment/catalog deployment/engagement \
-              deployment/payments deployment/transcode-worker
+            # Limit surge capacity on the two-node dev cluster during secret rotation.
+            for deploy in identity catalog engagement payments transcode-worker; do
+              kubectl -n "${K8S_NAMESPACE}" rollout restart "deployment/${deploy}"
+              kubectl -n "${K8S_NAMESPACE}" rollout status "deployment/${deploy}" --timeout=600s
+            done
           fi
 
       - name: Wait for rollout

@@ -26,3 +26,10 @@ resource "cloudflare_tiered_cache" "smart" {
   zone_id = local.zone_id
   value   = "on"
 }
+
+# Keep the API's short Cache-Control lifetime; Cloudflare's default browser TTL is four hours.
+resource "cloudflare_zone_setting" "browser_cache_ttl" {
+  zone_id    = local.zone_id
+  setting_id = "browser_cache_ttl"
+  value      = 0 # Respect Existing Headers
+}
