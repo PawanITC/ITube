@@ -2,13 +2,21 @@ package ITubeBackend.storage;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.SequenceInputStream;
 import java.io.RandomAccessFile;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Stream;
 
 /**
  * Stores objects as files under one folder. For tests and single-machine development only: it can't
@@ -16,6 +24,9 @@ import java.util.Optional;
  */
 public class LocalObjectStorage implements ObjectStorage {
     private static final String TYPE_SUFFIX = ".content-type";
+    /** Unfinished multipart uploads: {root}/.multipart/{uploadId}/{partNumber}, plus the target key and type. */
+    private static final String MULTIPART_DIR = ".multipart";
+    private static final String KEY_FILE = "key";
     private final Path root;
 
     public LocalObjectStorage(Path root) {
@@ -89,6 +100,119 @@ public class LocalObjectStorage implements ObjectStorage {
             Files.deleteIfExists(typeFile(file));
         } catch (IOException exception) {
             throw new StorageException("Could not delete " + key, exception);
+        }
+    }
+
+    @Override
+    public String createMultipartUpload(String key, String contentType) {
+        resolve(key);
+        String uploadId = UUID.randomUUID().toString();
+        Path dir = root.resolve(MULTIPART_DIR).resolve(uploadId);
+        try {
+            Files.createDirectories(dir);
+            Files.writeString(dir.resolve(KEY_FILE), key);
+            Files.writeString(dir.resolve(KEY_FILE + TYPE_SUFFIX), contentType == null ? "application/octet-stream" : contentType);
+            return uploadId;
+        } catch (IOException exception) {
+            throw new StorageException("Could not start an upload to " + key, exception);
+        }
+    }
+
+    @Override
+    public Optional<URI> presignedUploadPart(String key, String uploadId, int partNumber, Duration ttl) {
+        return Optional.empty();
+    }
+
+    @Override
+    public String uploadPart(String key, String uploadId, int partNumber, InputStream content, long length) {
+        Path dir = uploadDir(key, uploadId);
+        try {
+            Path temp = Files.createTempFile(dir, "part-", ".tmp");
+            try (InputStream in = content; OutputStream out = Files.newOutputStream(temp)) {
+                long copied = in.transferTo(out);
+                if (copied != length) {
+                    throw new StorageException("Part " + partNumber + " of " + key + " was " + copied + " bytes, expected " + length, null);
+                }
+            } catch (IOException | RuntimeException exception) {
+                Files.deleteIfExists(temp);
+                throw exception;
+            }
+            Files.move(temp, dir.resolve(Integer.toString(partNumber)), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            return "\"" + partNumber + "-" + length + "\"";
+        } catch (IOException exception) {
+            throw new StorageException("Could not store part " + partNumber + " of " + key, exception);
+        }
+    }
+
+    @Override
+    public List<UploadedPart> listParts(String key, String uploadId) {
+        Path dir = uploadDir(key, uploadId);
+        try (Stream<Path> files = Files.list(dir)) {
+            List<UploadedPart> parts = new ArrayList<>();
+            for (Path file : (Iterable<Path>) files::iterator) {
+                String name = file.getFileName().toString();
+                if (!name.chars().allMatch(Character::isDigit)) continue;
+                long size = Files.size(file);
+                parts.add(new UploadedPart(Integer.parseInt(name), "\"" + name + "-" + size + "\"", size));
+            }
+            parts.sort(Comparator.comparingInt(UploadedPart::partNumber));
+            return parts;
+        } catch (IOException exception) {
+            throw new StorageException("Could not list the parts of " + key, exception);
+        }
+    }
+
+    @Override
+    public void completeMultipartUpload(String key, String uploadId, List<UploadedPart> parts) {
+        Path dir = uploadDir(key, uploadId);
+        List<Path> files = parts.stream().sorted(Comparator.comparingInt(UploadedPart::partNumber))
+                .map(part -> dir.resolve(Integer.toString(part.partNumber()))).toList();
+        try {
+            List<InputStream> streams = new ArrayList<>();
+            long length = 0;
+            for (Path file : files) {
+                streams.add(Files.newInputStream(file));
+                length += Files.size(file);
+            }
+            String contentType = Files.readString(dir.resolve(KEY_FILE + TYPE_SUFFIX));
+            put(key, new SequenceInputStream(Collections.enumeration(streams)), length, contentType);
+            deleteTree(dir);
+        } catch (IOException exception) {
+            throw new StorageException("Could not complete the upload of " + key, exception);
+        }
+    }
+
+    @Override
+    public void abortMultipartUpload(String key, String uploadId) {
+        try {
+            deleteTree(uploadDir(key, uploadId));
+        } catch (MultipartUploadNotFoundException missing) {
+            // Already gone
+        } catch (IOException exception) {
+            throw new StorageException("Could not abort the upload of " + key, exception);
+        }
+    }
+
+    private Path uploadDir(String key, String uploadId) {
+        Path dir;
+        try {
+            dir = root.resolve(MULTIPART_DIR).resolve(UUID.fromString(uploadId).toString());
+        } catch (IllegalArgumentException invalid) {
+            throw new MultipartUploadNotFoundException("No upload " + uploadId + " for " + key, invalid);
+        }
+        try {
+            if (!Files.isDirectory(dir) || !Files.readString(dir.resolve(KEY_FILE)).equals(key)) {
+                throw new MultipartUploadNotFoundException("No upload " + uploadId + " for " + key, null);
+            }
+        } catch (IOException exception) {
+            throw new MultipartUploadNotFoundException("No upload " + uploadId + " for " + key, exception);
+        }
+        return dir;
+    }
+
+    private static void deleteTree(Path dir) throws IOException {
+        try (Stream<Path> files = Files.walk(dir)) {
+            for (Path file : files.sorted(Comparator.reverseOrder()).toList()) Files.deleteIfExists(file);
         }
     }
 

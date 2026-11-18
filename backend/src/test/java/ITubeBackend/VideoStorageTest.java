@@ -69,7 +69,7 @@ class VideoStorageTest {
 
     private VideoService service(ObjectStorage store, boolean redirect) {
         StorageProperties properties = new StorageProperties("local", null, null, null, null, null, null,
-                false, false, null, Duration.ofHours(1), redirect);
+                false, false, null, Duration.ofHours(1), redirect, null);
         return new VideoService(channels, videos, events, null, null, store, properties, transactions);
     }
 

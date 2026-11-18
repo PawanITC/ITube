@@ -4,6 +4,7 @@ import java.io.InputStream;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -38,6 +39,35 @@ public interface ObjectStorage {
     /** Deleting a key that doesn't exist is not an error. */
     void delete(String key);
 
+    // --- Multipart uploads: a large file is sent as numbered parts, possibly over several days ---
+
+    /** Starts a multipart upload into {@code key} and returns its upload id. */
+    String createMultipartUpload(String key, String contentType);
+
+    /**
+     * A time-limited URL the browser can PUT one part to directly, or empty if this store can't issue
+     * one; the browser then sends the part through the backend ({@link #uploadPart}).
+     */
+    Optional<URI> presignedUploadPart(String key, String uploadId, int partNumber, Duration ttl);
+
+    /** Stores one part (replacing an earlier copy of the same part) and returns its ETag. */
+    String uploadPart(String key, String uploadId, int partNumber, InputStream content, long length);
+
+    /**
+     * Parts stored so far, by part number. The store is the source of truth, so a browser that crashed
+     * mid-part simply re-sends it. Throws {@link MultipartUploadNotFoundException} if the upload is gone.
+     */
+    List<UploadedPart> listParts(String key, String uploadId);
+
+    /** Joins the parts (in part-number order) into the object at {@code key}. */
+    void completeMultipartUpload(String key, String uploadId, List<UploadedPart> parts);
+
+    /** Discards the upload and its parts. Aborting an unknown upload is not an error. */
+    void abortMultipartUpload(String key, String uploadId);
+
     record ObjectInfo(long length, String contentType) {
+    }
+
+    record UploadedPart(int partNumber, String etag, long size) {
     }
 }

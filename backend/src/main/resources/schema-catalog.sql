@@ -66,3 +66,30 @@ ALTER TABLE catalog.video ALTER COLUMN video DROP NOT NULL;
 ALTER TABLE catalog.video ADD COLUMN IF NOT EXISTS thumbnail BYTEA;
 ALTER TABLE catalog.video_rendition ADD COLUMN IF NOT EXISTS content BYTEA;
 ALTER TABLE catalog.video_rendition ALTER COLUMN content DROP NOT NULL;
+
+-- Resumable uploads in progress. The browser sends the file as parts straight to object storage (an S3
+-- multipart upload); this row remembers the upload so it can be resumed later. Deleted when the upload
+-- completes (the video row takes over) or is discarded; UploadExpiryJob aborts expired ones.
+-- No foreign key to channel: the expiry job must still find (and abort) uploads of deleted channels.
+CREATE TABLE IF NOT EXISTS catalog.upload_session (
+    upload_session_id UUID PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    channel_id BIGINT NOT NULL,
+    storage_key VARCHAR(512) NOT NULL,
+    storage_upload_id VARCHAR(1024) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'UPLOADING' CHECK (status IN ('UPLOADING', 'ASSEMBLED')),
+    file_name VARCHAR(255) NOT NULL,
+    file_size BIGINT NOT NULL,
+    file_last_modified BIGINT NOT NULL,
+    content_type VARCHAR(100) NOT NULL,
+    part_size BIGINT NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    duration TIME NOT NULL,
+    visibility VARCHAR(20) NOT NULL
+        CHECK (visibility IN ('PUBLIC', 'UNLISTED', 'PRIVATE', 'MEMBERS_ONLY')),
+    required_tier_level INT CHECK (required_tier_level BETWEEN 1 AND 10),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_upload_session_user ON catalog.upload_session (user_id);
+CREATE INDEX IF NOT EXISTS ix_upload_session_expires ON catalog.upload_session (expires_at);

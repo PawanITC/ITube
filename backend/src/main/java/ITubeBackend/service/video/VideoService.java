@@ -33,6 +33,7 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.time.Duration;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -69,21 +70,11 @@ public class VideoService {
      * multi-minute upload never holds a database connection. If the insert fails the files are removed.
      */
     public Long saveVideo(CreateVideo createVideo) {
-        if (createVideo.title() == null || createVideo.title().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Video title is required");
-        }
         if (createVideo.video() == null || createVideo.video().size() == 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A video file is required");
         }
-        if (createVideo.duration() == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Video duration is required");
-        }
-
-        VideoVisibility visibility = createVideo.visibility() == null ? VideoVisibility.PUBLIC : createVideo.visibility();
-        validateTierLevel(visibility, createVideo.requiredTierLevel());
-        if (!channelRepository.existsById(createVideo.channelId())) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Channel not found");
-        }
+        VideoVisibility visibility = validateDetails(createVideo.channelId(), createVideo.title(), createVideo.duration(),
+                createVideo.visibility(), createVideo.requiredTierLevel());
 
         String folder = MediaKeys.newVideoFolder();
         List<String> uploaded = new ArrayList<>();
@@ -91,25 +82,67 @@ public class VideoService {
             String videoKey = MediaKeys.source(folder);
             upload(videoKey, createVideo.video());
             uploaded.add(videoKey);
-            String thumbnailKey = null;
-            if (createVideo.thumbnail() != null && createVideo.thumbnail().size() > 0) {
-                thumbnailKey = MediaKeys.thumbnail(folder);
-                upload(thumbnailKey, createVideo.thumbnail());
-                uploaded.add(thumbnailKey);
-            }
-            String finalThumbnailKey = thumbnailKey;
-            return transactionTemplate.execute(status -> {
-                ChannelEntity channel = channelRepository.findById(createVideo.channelId())
-                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Channel not found"));
-                VideoEntity video = createVideoEntity(createVideo, visibility, channel, videoKey, finalThumbnailKey);
-                Long videoId = videoRepository.save(video).getVideoId();
-                eventPublisher.publishEvent(new VideoUploadedEvent(videoId));
-                return videoId;
-            });
+            return recordVideo(createVideo, visibility, videoKey, uploaded, null);
         } catch (RuntimeException exception) {
             uploaded.forEach(this::deleteQuietly);
             throw exception;
         }
+    }
+
+    /**
+     * Records a video whose source a resumable upload already put at {@code videoKey}
+     * ({@code createVideo.video()} carries only its size and type). {@code inSameTransaction} runs in the
+     * transaction that inserts the video, so the upload session can be removed atomically with it. If that
+     * transaction fails, only the thumbnail is removed: the source stays so the upload can be completed again.
+     */
+    public Long saveUploadedVideo(CreateVideo createVideo, String videoKey, Runnable inSameTransaction) {
+        VideoVisibility visibility = validateDetails(createVideo.channelId(), createVideo.title(), createVideo.duration(),
+                createVideo.visibility(), createVideo.requiredTierLevel());
+        List<String> uploaded = new ArrayList<>();
+        try {
+            return recordVideo(createVideo, visibility, videoKey, uploaded, inSameTransaction);
+        } catch (RuntimeException exception) {
+            uploaded.forEach(this::deleteQuietly);
+            throw exception;
+        }
+    }
+
+    /** Checks the details shared by both upload paths and returns the effective visibility. */
+    public VideoVisibility validateDetails(Long channelId, String title, LocalTime duration, VideoVisibility visibility,
+                                           Integer requiredTierLevel) {
+        if (title == null || title.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Video title is required");
+        }
+        if (duration == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Video duration is required");
+        }
+        VideoVisibility effective = visibility == null ? VideoVisibility.PUBLIC : visibility;
+        validateTierLevel(effective, requiredTierLevel);
+        if (channelId == null || !channelRepository.existsById(channelId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Channel not found");
+        }
+        return effective;
+    }
+
+    /** Uploads the thumbnail (adding its key to {@code uploaded}) and inserts the video row. */
+    private Long recordVideo(CreateVideo createVideo, VideoVisibility visibility, String videoKey, List<String> uploaded,
+                             Runnable inSameTransaction) {
+        String thumbnailKey = null;
+        if (createVideo.thumbnail() != null && createVideo.thumbnail().size() > 0) {
+            thumbnailKey = MediaKeys.thumbnail(MediaKeys.folderOf(videoKey));
+            upload(thumbnailKey, createVideo.thumbnail());
+            uploaded.add(thumbnailKey);
+        }
+        String finalThumbnailKey = thumbnailKey;
+        return transactionTemplate.execute(status -> {
+            ChannelEntity channel = channelRepository.findById(createVideo.channelId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Channel not found"));
+            VideoEntity video = createVideoEntity(createVideo, visibility, channel, videoKey, finalThumbnailKey);
+            Long videoId = videoRepository.save(video).getVideoId();
+            if (inSameTransaction != null) inSameTransaction.run();
+            eventPublisher.publishEvent(new VideoUploadedEvent(videoId));
+            return videoId;
+        });
     }
 
     private static VideoEntity createVideoEntity(CreateVideo createVideo, VideoVisibility visibility, ChannelEntity channel,

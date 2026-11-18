@@ -10,7 +10,10 @@ import software.amazon.awssdk.core.sync.ResponseTransformer;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CORSRule;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.NoSuchUploadException;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -21,9 +24,13 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
 
 public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(S3ObjectStorage.class);
     private final S3Client client;
     private final S3Presigner presigner;
     private final String bucket;
@@ -46,7 +53,26 @@ public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
         if (!isBlank(publicEndpoint)) presignerBuilder.endpointOverride(URI.create(publicEndpoint));
         this.presigner = presignerBuilder.build();
 
-        if (properties.createBucket()) ensureBucket();
+        if (properties.createBucket()) {
+            ensureBucket();
+            allowBrowserUploads(properties.corsAllowedOrigins());
+        }
+    }
+
+    /**
+     * Browsers PUT upload parts straight to the bucket, which needs CORS. Only done for buckets the backend
+     * creates itself (local SeaweedFS); Terraform sets CORS on the AWS bucket.
+     */
+    private void allowBrowserUploads(String origins) {
+        if (isBlank(origins)) return;
+        List<String> allowed = Arrays.stream(origins.split(",")).map(String::trim).filter(o -> !o.isEmpty()).toList();
+        try {
+            client.putBucketCors(b -> b.bucket(bucket).corsConfiguration(c -> c.corsRules(CORSRule.builder()
+                    .allowedOrigins(allowed).allowedMethods("GET", "HEAD", "PUT").allowedHeaders("*")
+                    .exposeHeaders("ETag").maxAgeSeconds(3600).build())));
+        } catch (SdkException exception) {
+            log.warn("Could not set CORS on bucket {}; browser uploads may be blocked", bucket, exception);
+        }
     }
 
     private void ensureBucket() {
@@ -119,6 +145,86 @@ public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
             client.deleteObject(b -> b.bucket(bucket).key(key));
         } catch (SdkException exception) {
             throw new StorageException("Could not delete " + key, exception);
+        }
+    }
+
+    @Override
+    public String createMultipartUpload(String key, String contentType) {
+        try {
+            return client.createMultipartUpload(b -> b.bucket(bucket).key(key).contentType(contentType)).uploadId();
+        } catch (SdkException exception) {
+            throw new StorageException("Could not start an upload to " + key, exception);
+        }
+    }
+
+    @Override
+    public Optional<URI> presignedUploadPart(String key, String uploadId, int partNumber, Duration ttl) {
+        try {
+            return Optional.of(presigner.presignUploadPart(p -> p.signatureDuration(ttl)
+                    .uploadPartRequest(u -> u.bucket(bucket).key(key).uploadId(uploadId).partNumber(partNumber)))
+                    .url().toURI());
+        } catch (URISyntaxException exception) {
+            throw new StorageException("Invalid pre-signed URL for " + key, exception);
+        }
+    }
+
+    @Override
+    public String uploadPart(String key, String uploadId, int partNumber, InputStream content, long length) {
+        try {
+            return client.uploadPart(b -> b.bucket(bucket).key(key).uploadId(uploadId).partNumber(partNumber)
+                    .contentLength(length), RequestBody.fromInputStream(content, length)).eTag();
+        } catch (NoSuchUploadException missing) {
+            throw new MultipartUploadNotFoundException("No upload " + uploadId + " for " + key, missing);
+        } catch (SdkException exception) {
+            throw new StorageException("Could not store part " + partNumber + " of " + key, exception);
+        }
+    }
+
+    @Override
+    public List<UploadedPart> listParts(String key, String uploadId) {
+        try {
+            return client.listPartsPaginator(b -> b.bucket(bucket).key(key).uploadId(uploadId)).parts().stream()
+                    .map(part -> new UploadedPart(part.partNumber(), part.eTag(), part.size()))
+                    .sorted(Comparator.comparingInt(UploadedPart::partNumber))
+                    .toList();
+        } catch (NoSuchUploadException missing) {
+            throw new MultipartUploadNotFoundException("No upload " + uploadId + " for " + key, missing);
+        } catch (S3Exception exception) {
+            if (exception.statusCode() == 404) {
+                throw new MultipartUploadNotFoundException("No upload " + uploadId + " for " + key, exception);
+            }
+            throw new StorageException("Could not list the parts of " + key, exception);
+        } catch (SdkException exception) {
+            throw new StorageException("Could not list the parts of " + key, exception);
+        }
+    }
+
+    @Override
+    public void completeMultipartUpload(String key, String uploadId, List<UploadedPart> parts) {
+        List<CompletedPart> completed = parts.stream()
+                .sorted(Comparator.comparingInt(UploadedPart::partNumber))
+                .map(part -> CompletedPart.builder().partNumber(part.partNumber()).eTag(part.etag()).build())
+                .toList();
+        try {
+            client.completeMultipartUpload(b -> b.bucket(bucket).key(key).uploadId(uploadId)
+                    .multipartUpload(m -> m.parts(completed)));
+        } catch (NoSuchUploadException missing) {
+            throw new MultipartUploadNotFoundException("No upload " + uploadId + " for " + key, missing);
+        } catch (SdkException exception) {
+            throw new StorageException("Could not complete the upload of " + key, exception);
+        }
+    }
+
+    @Override
+    public void abortMultipartUpload(String key, String uploadId) {
+        try {
+            client.abortMultipartUpload(b -> b.bucket(bucket).key(key).uploadId(uploadId));
+        } catch (NoSuchUploadException missing) {
+            // Already gone
+        } catch (S3Exception exception) {
+            if (exception.statusCode() != 404) throw new StorageException("Could not abort the upload of " + key, exception);
+        } catch (SdkException exception) {
+            throw new StorageException("Could not abort the upload of " + key, exception);
         }
     }
 
