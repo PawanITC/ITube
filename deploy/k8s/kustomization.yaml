@@ -1,5 +1,6 @@
 # ITube on EKS (dev). Render with:  kubectl kustomize deploy/k8s
 # The namespace `itube` is created by the infra pipeline; nothing cluster-scoped lives here.
+# With a Cloudflare Tunnel (public DNS + CDN), apply deploy/k8s-cloudflare instead, which adds cloudflared on top.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -11,20 +12,45 @@ labels:
     includeSelectors: false
 
 resources:
+  # Shared configuration
+  - configmap.yaml
+  - serviceaccount.yaml
+  # Data stores
   - postgres.yaml
+  - postgres-shard1.yaml
   - scylla.yaml
   - redis.yaml
   - kafka.yaml
-  - backend.yaml
+  # Microservices
+  - identity.yaml
+  - catalog.yaml
+  - engagement.yaml
+  - payments.yaml
+  - transcode-worker.yaml
+  # Edge
+  - gateway.yaml
   - frontend.yaml
 
-# Placeholders: the GitHub Actions workflow runs
-#   kustomize edit set image itube-backend=<ecr>/eks-lab/itube-backend:<git sha>
-#   kustomize edit set image itube-frontend=<ecr>/eks-lab/itube-frontend:<git sha>
-# before `kubectl apply -k`. The Secret `itube-secrets` is created by the workflow, not by kustomize.
+# Placeholders: the GitHub Actions workflow runs `kustomize edit set image <name>=<ecr>/eks-lab/<name>:<git sha>`
+# for every image before `kubectl apply -k`. The Secret `itube-secrets` is created by the workflow, not by kustomize.
 images:
-  - name: itube-backend
-    newName: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-backend
+  - name: itube-identity
+    newName: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-identity
+    newTag: latest
+  - name: itube-catalog
+    newName: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-catalog
+    newTag: latest
+  - name: itube-engagement
+    newName: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-engagement
+    newTag: latest
+  - name: itube-payments
+    newName: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-payments
+    newTag: latest
+  - name: itube-transcode-worker
+    newName: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-transcode-worker
+    newTag: latest
+  - name: itube-gateway
+    newName: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-gateway
     newTag: latest
   - name: itube-frontend
     newName: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-frontend

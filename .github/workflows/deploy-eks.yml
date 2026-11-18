@@ -1,5 +1,5 @@
-# Build the ITube images, push them to ECR and deploy to the EKS dev cluster (namespace `itube`).
-# One-time setup (environment `dev`, variable AWS_DEPLOY_ROLE_ARN, secrets): see deploy/README.md.
+# Test, build the ITube images (one per microservice + gateway + frontend), push them to ECR and deploy to the EKS dev
+# cluster (namespace `itube`). One-time setup (environment `dev`, variable AWS_DEPLOY_ROLE_ARN, secrets): deploy/README.md.
 name: Deploy to EKS (dev)
 
 on:
@@ -8,7 +8,9 @@ on:
     paths:
       - backend/**
       - frontend/**
-      - deploy/**
+      - gateway/**
+      - deploy/k8s/**
+      - deploy/k8s-cloudflare/**
       - .github/workflows/deploy-eks.yml
   workflow_dispatch:
 
@@ -25,12 +27,13 @@ env:
   EKS_CLUSTER: eks-lab-dev
   K8S_NAMESPACE: itube
   KUSTOMIZE_VERSION: v5.8.1
+  ECR_PREFIX: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab
 
 jobs:
   test:
-    name: Unit tests
+    name: Tests (unit + BDD)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -39,13 +42,22 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
-          cache-dependency-path: backend/pom.xml
+          cache-dependency-path: backend/**/pom.xml
 
-      # The tests need no external services: HistoryApiTests uses the in-memory `h2` profile,
-      # the payment tests use fakes.
+      # Every module: unit tests and the Cucumber (BDD) scenarios. They need no external services: in-memory
+      # databases (two of them as catalog shards), in-memory engagement stores, mocked neighbour services.
+      # The end-to-end journeys (e2e-tests) need a running stack and are skipped here.
       - name: Backend tests
         working-directory: backend
         run: sh ./mvnw -B test
+
+      - name: Upload Cucumber reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cucumber-reports
+          path: backend/*/target/cucumber-report.html
+          if-no-files-found: ignore
 
       - uses: actions/setup-node@v4
         with:
@@ -59,17 +71,82 @@ jobs:
           npm ci --no-audit --no-fund
           npx vitest run
 
-  deploy:
-    name: Build, push and deploy
+  images:
+    name: Build ${{ matrix.image }}
     needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: dev
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { image: itube-identity, context: backend, service: identity-service }
+          - { image: itube-catalog, context: backend, service: catalog-service }
+          - { image: itube-engagement, context: backend, service: engagement-service }
+          - { image: itube-payments, context: backend, service: payments-service }
+          - { image: itube-transcode-worker, context: backend, service: transcode-worker }
+          - { image: itube-gateway, context: gateway, service: "" }
+          - { image: itube-frontend, context: frontend, service: "" }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required configuration
+        env:
+          AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          if [ -z "${AWS_DEPLOY_ROLE_ARN}" ]; then
+            echo "::error title=Missing variable::Set the variable AWS_DEPLOY_ROLE_ARN (environment 'dev' or repository). See deploy/README.md."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: itube-build-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Re-runs of the same commit reuse the image already in ECR (tags are immutable)
+      - name: Check for an existing image
+        id: existing
+        env:
+          IMAGE: ${{ env.ECR_PREFIX }}/${{ matrix.image }}:${{ github.sha }}
+        run: |
+          if docker buildx imagetools inspect "${IMAGE}" >/dev/null 2>&1; then
+            echo "${IMAGE} already exists, skipping build"
+            echo "exists=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "exists=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Build and push
+        if: steps.existing.outputs.exists != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.context }}/Dockerfile
+          build-args: ${{ matrix.service != '' && format('SERVICE={0}', matrix.service) || '' }}
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          tags: ${{ env.ECR_PREFIX }}/${{ matrix.image }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+
+  deploy:
+    name: Deploy
+    needs: images
     runs-on: ubuntu-latest
     timeout-minutes: 45
     # Required: the deploy role trusts only ...:environment:dev
     environment: dev
-    # ECR repositories created by the infra repo; tag = commit SHA
-    env:
-      BACKEND_IMAGE: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-backend:${{ github.sha }}
-      FRONTEND_IMAGE: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-frontend:${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
 
@@ -105,53 +182,6 @@ jobs:
           role-session-name: itube-deploy-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Log in to Amazon ECR
-        id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      # Re-runs of the same commit reuse the images already in ECR (also safe with immutable tags)
-      - name: Check for existing images
-        id: existing
-        run: |
-          for name in backend frontend; do
-            if [ "${name}" = backend ]; then image="${BACKEND_IMAGE}"; else image="${FRONTEND_IMAGE}"; fi
-            if docker buildx imagetools inspect "${image}" >/dev/null 2>&1; then
-              echo "${image} already exists, skipping build"
-              echo "${name}=true" >> "${GITHUB_OUTPUT}"
-            else
-              echo "${name}=false" >> "${GITHUB_OUTPUT}"
-            fi
-          done
-
-      - name: Build and push backend image
-        if: steps.existing.outputs.backend != 'true'
-        uses: docker/build-push-action@v6
-        with:
-          context: backend
-          file: backend/Dockerfile
-          platforms: linux/amd64
-          push: true
-          provenance: false
-          tags: ${{ env.BACKEND_IMAGE }}
-          cache-from: type=gha,scope=itube-backend
-          cache-to: type=gha,scope=itube-backend,mode=max
-
-      - name: Build and push frontend image
-        if: steps.existing.outputs.frontend != 'true'
-        uses: docker/build-push-action@v6
-        with:
-          context: frontend
-          file: frontend/Dockerfile
-          platforms: linux/amd64
-          push: true
-          provenance: false
-          tags: ${{ env.FRONTEND_IMAGE }}
-          cache-from: type=gha,scope=itube-frontend
-          cache-to: type=gha,scope=itube-frontend,mode=max
-
       - name: Configure kubectl
         id: kubeconfig
         run: |
@@ -164,28 +194,36 @@ jobs:
             exit 1
           fi
 
-      - name: Create or update Secret itube-secrets
+      - name: Create or update Secrets
         id: secret
         env:
           ITUBE_DB_PASSWORD: ${{ secrets.ITUBE_DB_PASSWORD }}
           ITUBE_PLAYBACK_SIGNING_KEY: ${{ secrets.ITUBE_PLAYBACK_SIGNING_KEY }}
           ITUBE_STRIPE_SECRET_KEY: ${{ secrets.ITUBE_STRIPE_SECRET_KEY }}
           ITUBE_STRIPE_WEBHOOK_SECRET: ${{ secrets.ITUBE_STRIPE_WEBHOOK_SECRET }}
+          ITUBE_INTERNAL_API_TOKEN: ${{ secrets.ITUBE_INTERNAL_API_TOKEN }}
+          CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
         run: |
           set -euo pipefail
           # Values go through files (mode 600), never through command-line arguments or the log
           secret_dir="$(mktemp -d "${RUNNER_TEMP}/itube-secrets.XXXXXX")"
-          trap 'rm -rf "${secret_dir}"' EXIT
+          tunnel_dir="$(mktemp -d "${RUNNER_TEMP}/cloudflare-tunnel.XXXXXX")"
+          trap 'rm -rf "${secret_dir}" "${tunnel_dir}"' EXIT
           umask 077
           printf '%s' "${ITUBE_DB_PASSWORD}" > "${secret_dir}/db-password"
           printf '%s' "${ITUBE_PLAYBACK_SIGNING_KEY}" > "${secret_dir}/playback-signing-key"
-          # No object storage keys: the backend reaches S3 with its EKS Pod Identity role
-          # Optional Stripe keys: only added when set (the Deployment references them with optional: true)
+          # No object storage keys: catalog-service and transcode-worker reach S3 with their EKS Pod Identity role
+          # Optional values: only added when set (the Deployments reference them with optional: true)
           if [ -n "${ITUBE_STRIPE_SECRET_KEY}" ]; then
             printf '%s' "${ITUBE_STRIPE_SECRET_KEY}" > "${secret_dir}/stripe-secret-key"
           fi
           if [ -n "${ITUBE_STRIPE_WEBHOOK_SECRET}" ]; then
             printf '%s' "${ITUBE_STRIPE_WEBHOOK_SECRET}" > "${secret_dir}/stripe-webhook-secret"
+          fi
+          if [ -n "${ITUBE_INTERNAL_API_TOKEN}" ]; then
+            printf '%s' "${ITUBE_INTERNAL_API_TOKEN}" > "${secret_dir}/internal-api-token"
+          else
+            echo "::warning title=No internal API token::Set the secret ITUBE_INTERNAL_API_TOKEN (openssl rand -base64 32) so services check each other's calls to /internal/** (deploy/README.md)."
           fi
           result="$(kubectl create secret generic itube-secrets \
               --namespace "${K8S_NAMESPACE}" \
@@ -193,11 +231,20 @@ jobs:
               --dry-run=client -o yaml \
             | kubectl apply -f -)"
           echo "${result}"
-          if printf '%s' "${result}" | grep -qE ' (configured|created)$'; then
-            echo "changed=true" >> "${GITHUB_OUTPUT}"
+          changed=false
+          if printf '%s' "${result}" | grep -qE ' (configured|created)$'; then changed=true; fi
+
+          # Cloudflare Tunnel (deploy/cloudflare): publish the app only when the token is configured
+          if [ -n "${CLOUDFLARE_TUNNEL_TOKEN}" ]; then
+            printf '%s' "${CLOUDFLARE_TUNNEL_TOKEN}" > "${tunnel_dir}/token"
+            kubectl create secret generic cloudflare-tunnel --namespace "${K8S_NAMESPACE}" \
+              --from-file="${tunnel_dir}" --dry-run=client -o yaml | kubectl apply -f -
+            echo "overlay=deploy/k8s-cloudflare" >> "${GITHUB_OUTPUT}"
           else
-            echo "changed=false" >> "${GITHUB_OUTPUT}"
+            echo "No CLOUDFLARE_TUNNEL_TOKEN: deploying without a public endpoint (port-forward only)"
+            echo "overlay=deploy/k8s" >> "${GITHUB_OUTPUT}"
           fi
+          echo "changed=${changed}" >> "${GITHUB_OUTPUT}"
 
       - name: Install kustomize
         run: |
@@ -214,38 +261,53 @@ jobs:
       - name: Set image tags
         working-directory: deploy/k8s
         run: |
-          kustomize edit set image "itube-backend=${BACKEND_IMAGE}" "itube-frontend=${FRONTEND_IMAGE}"
+          args=()
+          for image in itube-identity itube-catalog itube-engagement itube-payments itube-transcode-worker itube-gateway itube-frontend; do
+            args+=("${image}=${ECR_PREFIX}/${image}:${GITHUB_SHA}")
+          done
+          kustomize edit set image "${args[@]}"
           kustomize build . | grep -E '^\s+image:' | sort -u
 
       - name: Apply manifests
         env:
+          OVERLAY: ${{ steps.secret.outputs.overlay }}
           SECRET_CHANGED: ${{ steps.secret.outputs.changed }}
         run: |
           set -euo pipefail
-          kubectl apply -k deploy/k8s
-          # Pods read the Secret only at start-up: restart the backend when it changed
+          kubectl apply -k "${OVERLAY}"
+          # The single-replica monolith from before the microservices split
+          kubectl -n "${K8S_NAMESPACE}" delete deployment/backend service/backend --ignore-not-found
+          # Pods read Secrets only at start-up: restart the services when it changed
           if [ "${SECRET_CHANGED}" = "true" ]; then
-            echo "Secret itube-secrets changed, restarting the backend"
-            kubectl -n "${K8S_NAMESPACE}" rollout restart deployment/backend
+            echo "Secret itube-secrets changed, restarting the services"
+            kubectl -n "${K8S_NAMESPACE}" rollout restart deployment/identity deployment/catalog deployment/engagement \
+              deployment/payments deployment/transcode-worker
           fi
 
       - name: Wait for rollout
+        env:
+          OVERLAY: ${{ steps.secret.outputs.overlay }}
         run: |
           set -euo pipefail
-          kubectl -n "${K8S_NAMESPACE}" rollout status statefulset/postgres --timeout=300s
-          kubectl -n "${K8S_NAMESPACE}" rollout status statefulset/scylla --timeout=300s
-          kubectl -n "${K8S_NAMESPACE}" rollout status deployment/redis --timeout=180s
-          kubectl -n "${K8S_NAMESPACE}" rollout status statefulset/kafka --timeout=300s
-          kubectl -n "${K8S_NAMESPACE}" rollout status deployment/backend --timeout=600s
-          kubectl -n "${K8S_NAMESPACE}" rollout status deployment/frontend --timeout=180s
-          kubectl -n "${K8S_NAMESPACE}" get pods,svc,pvc -o wide
+          ns="${K8S_NAMESPACE}"
+          for sts in postgres postgres-shard1 scylla kafka; do
+            kubectl -n "${ns}" rollout status "statefulset/${sts}" --timeout=300s
+          done
+          kubectl -n "${ns}" rollout status deployment/redis --timeout=180s
+          for deploy in identity catalog engagement payments transcode-worker gateway frontend; do
+            kubectl -n "${ns}" rollout status "deployment/${deploy}" --timeout=600s
+          done
+          if [ "${OVERLAY}" = "deploy/k8s-cloudflare" ]; then
+            kubectl -n "${ns}" rollout status deployment/cloudflared --timeout=180s
+          fi
+          kubectl -n "${ns}" get pods,svc,pvc,hpa -o wide
 
       - name: Debug information
         if: failure() && steps.kubeconfig.outcome == 'success'
         run: |
           ns="${K8S_NAMESPACE}"
-          echo "::group::Pods / Services / PVCs"
-          kubectl -n "${ns}" get pods,svc,pvc -o wide || true
+          echo "::group::Pods / Services / PVCs / HPAs"
+          kubectl -n "${ns}" get pods,svc,pvc,hpa -o wide || true
           echo "::endgroup::"
           echo "::group::Recent events"
           kubectl -n "${ns}" get events --sort-by=.lastTimestamp | tail -n 60 || true
@@ -262,23 +324,24 @@ jobs:
 
       - name: Job summary
         if: success()
+        env:
+          OVERLAY: ${{ steps.secret.outputs.overlay }}
         run: |
           {
             echo "## ITube deployed to \`${EKS_CLUSTER}\` (namespace \`${K8S_NAMESPACE}\`)"
             echo ""
-            echo "| Image | Tag |"
-            echo "|---|---|"
-            echo "| backend | \`${BACKEND_IMAGE}\` |"
-            echo "| frontend | \`${FRONTEND_IMAGE}\` |"
+            echo "Images: \`${ECR_PREFIX}/<service>:${GITHUB_SHA}\` for identity, catalog, engagement, payments,"
+            echo "transcode-worker, gateway and frontend."
             echo ""
-            echo "Open the app (no public endpoint, by design):"
-            echo ""
-            echo '```bash'
-            echo "aws eks update-kubeconfig --region ${AWS_REGION} --name ${EKS_CLUSTER}"
-            echo "kubectl port-forward -n ${K8S_NAMESPACE} svc/frontend 3000:80"
-            echo "# then browse http://localhost:3000"
-            echo ""
-            echo "# Swagger UI: http://localhost:8080/swagger-ui.html"
-            echo "kubectl port-forward -n ${K8S_NAMESPACE} svc/backend 8080:8080"
-            echo '```'
+            if [ "${OVERLAY}" = "deploy/k8s-cloudflare" ]; then
+              echo "Public through Cloudflare Tunnel: see \`terraform output app_url\` in deploy/cloudflare."
+            else
+              echo "No public endpoint (no Cloudflare tunnel token). Open the app with:"
+              echo ""
+              echo '```bash'
+              echo "aws eks update-kubeconfig --region ${AWS_REGION} --name ${EKS_CLUSTER}"
+              echo "kubectl port-forward -n ${K8S_NAMESPACE} svc/frontend 3000:80"
+              echo "# then browse http://localhost:3000"
+              echo '```'
+            fi
           } >> "${GITHUB_STEP_SUMMARY}"

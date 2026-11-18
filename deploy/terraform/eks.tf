@@ -24,6 +24,8 @@ module "eks" {
     kube-proxy = {}
     coredns    = {}
     # Backs the gp3 StorageClass used by the Postgres, ScyllaDB and Kafka PVCs
+    # CPU/memory metrics for the HorizontalPodAutoscalers in deploy/k8s (EKS community add-on)
+    metrics-server = {}
     aws-ebs-csi-driver = {
       pod_identity_association = [{
         role_arn        = aws_iam_role.ebs_csi.arn

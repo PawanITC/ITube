@@ -1,5 +1,12 @@
 # History feature
 
+> **Now part of engagement-service.** Since the split into microservices, this feature lives in
+> [engagement-service](engagement-service) (code under `engagement-service/src/main/java/ITubeBackend`, tests under
+> `engagement-service/src/test`). It runs on port 8083 locally and is reached through the API gateway on 8080, so the
+> URLs below are unchanged. Video details come from catalog-service ([docs/MICROSERVICES.md](../docs/MICROSERVICES.md)).
+> Paths and run commands further down describe the original single application.
+
+
 > **Storage has moved.** Watch history now lives in ScyllaDB (`watch_history_by_user`), not the PostgreSQL
 > `watch_history` table, and entry ids are UUIDs. See [docs/DATA-ARCHITECTURE.md](../docs/DATA-ARCHITECTURE.md).
 > The PostgreSQL notes below describe the original implementation.

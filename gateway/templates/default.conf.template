@@ -1,0 +1,135 @@
+# ITube API gateway (nginx). One public entry point for every service; the browser still sees a single origin.
+#
+#   /api/auth/*, /api/session/*               -> identity-service
+#   /api/videos/{id}/comments, /api/history,
+#   /api/liked-videos                         -> engagement-service
+#   /api/memberships, /api/payments,
+#   /api/webhooks/*                           -> payments-service
+#   /api/channels, /api/videos, /api/uploads  -> catalog-service
+#   /internal/*                               -> never (service-to-service only)
+#
+# What it adds on top of routing:
+#   - per-client rate limits (stricter on sign-in, to slow down password guessing)  -> 429
+#   - short connect/read timeouts and one retry on another pod for safe requests   -> no hung requests
+#   - keep-alive connection pools to every service                                 -> less latency per call
+#   - the real client IP from Cloudflare (CF-Connecting-IP), trusted only from private networks
+#
+# ${..._UPSTREAM} are filled in from environment variables when the container starts (nginx image "templates").
+
+# --- Client IP: behind Cloudflare (tunnel/proxy) the TCP peer is Cloudflare or a pod, not the user --------------
+real_ip_header    CF-Connecting-IP;
+set_real_ip_from  10.0.0.0/8;
+set_real_ip_from  172.16.0.0/12;
+set_real_ip_from  192.168.0.0/16;
+set_real_ip_from  127.0.0.0/8;
+real_ip_recursive on;
+
+# --- Rate limits (per client IP) ----------------------------------------------------------------------------------
+# A normal page load makes a handful of API calls; 30/s with bursts of 60 is far above any human.
+# Load tests from one machine raise these (API_RATE_LIMIT / AUTH_RATE_LIMIT, see loadtest/README.md).
+limit_req_zone $binary_remote_addr zone=api:20m rate=${API_RATE_LIMIT};
+# Sign-in and registration: 10 per minute per IP
+limit_req_zone $binary_remote_addr zone=auth:10m rate=${AUTH_RATE_LIMIT};
+limit_req_status 429;
+limit_conn_zone $binary_remote_addr zone=perip:10m;
+
+
+upstream identity   { server ${IDENTITY_UPSTREAM};   keepalive 32; }
+upstream catalog    { server ${CATALOG_UPSTREAM};    keepalive 64; }
+upstream engagement { server ${ENGAGEMENT_UPSTREAM}; keepalive 64; }
+upstream payments   { server ${PAYMENTS_UPSTREAM};   keepalive 16; }
+
+server {
+    listen      8080;
+    server_name _;
+
+    # Don't advertise the nginx version
+    server_tokens off;
+    # Resumable upload parts can come through the gateway when storage can't pre-sign (local dev): 8-64 MB parts.
+    # The old single-request upload allows 500 MB.
+    client_max_body_size 501m;
+    limit_conn perip ${CONNECTIONS_PER_IP};
+
+    gzip on;
+    gzip_types application/json application/problem+json text/plain;
+    gzip_min_length 1024;
+
+    proxy_http_version 1.1;
+    proxy_set_header Connection        "";
+    proxy_set_header Host              $http_host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+    # Correlates the gateway log line with the service logs
+    proxy_set_header X-Request-Id      $request_id;
+    add_header X-Request-Id $request_id always;
+
+    # Fail fast: a service that doesn't accept the connection within 2 s is treated as down
+    proxy_connect_timeout 2s;
+    proxy_send_timeout    60s;
+    proxy_read_timeout    60s;
+    # Retry once on another pod if the first one refused or broke - only for requests that are safe to repeat
+    # (nginx never retries POST/PATCH unless told to), so nothing is ever done twice
+    proxy_next_upstream         error timeout http_502 http_503 http_504;
+    proxy_next_upstream_tries   2;
+    proxy_next_upstream_timeout 10s;
+
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # Service-to-service APIs and actuator endpoints are not public
+    location ^~ /internal/ { return 404; }
+    location ^~ /actuator/ { return 404; }
+
+    # ---- identity-service ----
+    location ~ ^/api/auth/(login|register)$ {
+        limit_req zone=auth burst=10 nodelay;
+        proxy_pass http://identity;
+    }
+    # Plain prefix (not ^~) so the regex above is still checked first for login/register
+    location /api/auth/       { limit_req zone=api burst=60 nodelay; proxy_pass http://identity; }
+    location ^~ /api/session/ { limit_req zone=api burst=60 nodelay; proxy_pass http://identity; }
+
+    # ---- engagement-service (comments sit under /api/videos, so they're matched before the catalog) ----
+    location ~ ^/api/videos/[0-9]+/comments { limit_req zone=api burst=60 nodelay; proxy_pass http://engagement; }
+    location ^~ /api/history       { limit_req zone=api burst=60 nodelay; proxy_pass http://engagement; }
+    location ^~ /api/liked-videos  { limit_req zone=api burst=60 nodelay; proxy_pass http://engagement; }
+
+    # ---- payments-service ----
+    location ^~ /api/memberships { limit_req zone=api burst=60 nodelay; proxy_pass http://payments; }
+    location ^~ /api/payments    { limit_req zone=api burst=20 nodelay; proxy_pass http://payments; }
+    # Stripe calls this; it must not be rate limited per IP (Stripe sends from a few addresses)
+    location ^~ /api/webhooks/   { proxy_pass http://payments; }
+
+    # ---- catalog-service ----
+    location ^~ /api/uploads {
+        limit_req zone=api burst=60 nodelay;
+        # Parts streamed through here (local dev) shouldn't be buffered to disk first
+        proxy_request_buffering off;
+        proxy_read_timeout 900s;
+        proxy_send_timeout 900s;
+        proxy_pass http://catalog;
+    }
+    location ~ ^/api/videos/[0-9]+/(file|renditions|thumbnail) {
+        # Playback answers with a redirect to storage/CDN; when it streams instead, pass Range through unbuffered
+        limit_req zone=api burst=200 nodelay;
+        proxy_set_header Range    $http_range;
+        proxy_set_header If-Range $http_if_range;
+        proxy_buffering off;
+        proxy_pass http://catalog;
+    }
+    # Plain prefix (not ^~): nginx only checks the regex locations (comments, media) when the matching prefix is
+    # not ^~, and those must win for /api/videos/{id}/comments and /api/videos/{id}/file
+    location /api/videos {
+        limit_req zone=api burst=60 nodelay;
+        proxy_request_buffering off;
+        proxy_read_timeout 900s;
+        proxy_pass http://catalog;
+    }
+    location ^~ /api/channels { limit_req zone=api burst=60 nodelay; proxy_pass http://catalog; }
+
+    location / { return 404; }
+}

@@ -1,4 +1,5 @@
-# PostgreSQL 17: one schema per domain - identity (accounts), catalog (channels, video metadata) and payments.
+# PostgreSQL 17: one schema per domain - identity (accounts), payments, and catalog shard 0 (channels, video metadata;
+# shard 1 is postgres-shard1).
 # Video files live in object storage (S3 on EKS, SeaweedFS locally) and engagement data in ScyllaDB.
 apiVersion: v1
 kind: Service

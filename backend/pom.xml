@@ -2,6 +2,21 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
+	<!--
+		ITube backend: one Maven build, several independently deployable services.
+
+		  common              shared library: session user, resilient service clients, Caffeine caches, Kafka retries/DLT
+		  storage             shared library: S3-compatible object storage (catalog + transcode worker only)
+		  identity-service    accounts, register/login/logout                        :8081  Postgres schema identity
+		  catalog-service     channels, subscriptions, videos, uploads, playback     :8082  Postgres, sharded (catalog)
+		  engagement-service  watch history, likes, comments                         :8083  ScyllaDB
+		  payments-service    Stripe, channel memberships, entitlements              :8084  Postgres schema payments
+		  transcode-worker    FFmpeg renditions, driven by Kafka                     :8085  object storage only
+		  e2e-tests           Cucumber journeys against a running stack (profile e2e, see e2e-tests/README.md)
+
+		Build and test everything:   ./mvnw test
+		Build one service:           ./mvnw -pl catalog-service -am package
+	-->
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
@@ -9,29 +24,51 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.example</groupId>
-	<artifactId>ITubeBackend</artifactId>
+	<artifactId>itube-parent</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name/>
-	<description/>
-	<url/>
-	<licenses>
-		<license/>
-	</licenses>
-	<developers>
-		<developer/>
-	</developers>
-	<scm>
-		<connection/>
-		<developerConnection/>
-		<tag/>
-		<url/>
-	</scm>
+	<packaging>pom</packaging>
+	<name>itube-parent</name>
+
+	<modules>
+		<module>common</module>
+		<module>storage</module>
+		<module>identity-service</module>
+		<module>catalog-service</module>
+		<module>engagement-service</module>
+		<module>payments-service</module>
+		<module>transcode-worker</module>
+		<module>e2e-tests</module>
+	</modules>
+
 	<properties>
 		<java.version>21</java.version>
 		<aws-sdk.version>2.31.0</aws-sdk.version>
+		<resilience4j.version>2.4.0</resilience4j.version>
+		<cucumber.version>8.1.0</cucumber.version>
+		<springdoc.version>3.2.0</springdoc.version>
+		<stripe.version>34.1.0</stripe.version>
+		<otel-logback.version>2.28.1-alpha</otel-logback.version>
 	</properties>
+
 	<dependencyManagement>
 		<dependencies>
+			<dependency>
+				<groupId>com.example</groupId>
+				<artifactId>itube-common</artifactId>
+				<version>${project.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>com.example</groupId>
+				<artifactId>itube-common</artifactId>
+				<version>${project.version}</version>
+				<type>test-jar</type>
+				<scope>test</scope>
+			</dependency>
+			<dependency>
+				<groupId>com.example</groupId>
+				<artifactId>itube-storage</artifactId>
+				<version>${project.version}</version>
+			</dependency>
 			<dependency>
 				<groupId>software.amazon.awssdk</groupId>
 				<artifactId>bom</artifactId>
@@ -39,129 +76,66 @@
 				<type>pom</type>
 				<scope>import</scope>
 			</dependency>
+			<dependency>
+				<groupId>io.cucumber</groupId>
+				<artifactId>cucumber-bom</artifactId>
+				<version>${cucumber.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+			<dependency>
+				<groupId>io.github.resilience4j</groupId>
+				<artifactId>resilience4j-circuitbreaker</artifactId>
+				<version>${resilience4j.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>io.github.resilience4j</groupId>
+				<artifactId>resilience4j-retry</artifactId>
+				<version>${resilience4j.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>io.github.resilience4j</groupId>
+				<artifactId>resilience4j-bulkhead</artifactId>
+				<version>${resilience4j.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>io.github.resilience4j</groupId>
+				<artifactId>resilience4j-micrometer</artifactId>
+				<version>${resilience4j.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>org.springdoc</groupId>
+				<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+				<version>${springdoc.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>com.stripe</groupId>
+				<artifactId>stripe-java</artifactId>
+				<version>${stripe.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>io.opentelemetry.instrumentation</groupId>
+				<artifactId>opentelemetry-logback-appender-1.0</artifactId>
+				<version>${otel-logback.version}</version>
+			</dependency>
 		</dependencies>
 	</dependencyManagement>
-	<dependencies>
-		<!-- Object storage for video files, renditions and thumbnails (S3 API: AWS S3, SeaweedFS, R2, GCS interop) -->
-		<dependency>
-			<groupId>software.amazon.awssdk</groupId>
-			<artifactId>s3</artifactId>
-		</dependency>
-
-		<!-- CQL driver for ScyllaDB (engagement data: watch history, likes, comments). Version managed by Spring Boot. -->
-		<dependency>
-			<groupId>org.apache.cassandra</groupId>
-			<artifactId>java-driver-core</artifactId>
-		</dependency>
-
-		<!-- Optional local History testing; shared development uses PostgreSQL. -->
-		<dependency>
-			<groupId>com.h2database</groupId>
-			<artifactId>h2</artifactId>
-			<scope>runtime</scope>
-		</dependency>
-
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-webmvc</artifactId>
-		</dependency>
-
-		<dependency>
-			<groupId>org.springframework</groupId>
-			<artifactId>spring-core</artifactId>
-		</dependency>
-
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-data-jpa</artifactId>
-		</dependency>
-
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-kafka</artifactId>
-		</dependency>
-
-		<dependency>
-			<groupId>org.springframework.kafka</groupId>
-			<artifactId>spring-kafka</artifactId>
-		</dependency>
-
-		<dependency>
-			<groupId>org.postgresql</groupId>
-			<artifactId>postgresql</artifactId>
-			<scope>runtime</scope>
-		</dependency>
-
-		<!-- Source: https://mvnrepository.com/artifact/io.opentelemetry.instrumentation/opentelemetry-spring-boot-starter -->
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-opentelemetry</artifactId>
-		</dependency>
-
-		<dependency>
-			<groupId>io.opentelemetry.instrumentation</groupId>
-			<artifactId>opentelemetry-logback-appender-1.0</artifactId>
-			<version>2.28.1-alpha</version>
-		</dependency>
-
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-session-data-redis</artifactId>
-		</dependency>
-
-
-		<dependency>
-			<groupId>org.springframework.webflow</groupId>
-			<artifactId>spring-binding</artifactId>
-			<version>4.0.1</version>
-		</dependency>
-
-
-		<!-- Stripe server-side SDK (pins Stripe API version 2026-10-28.endive) -->
-		<dependency>
-			<groupId>com.stripe</groupId>
-			<artifactId>stripe-java</artifactId>
-			<version>34.1.0</version>
-		</dependency>
-
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-validation</artifactId>
-		</dependency>
-
-		<!-- BCrypt password hashing for login/register (crypto module only, no Spring Security filter chain) -->
-		<dependency>
-			<groupId>org.springframework.security</groupId>
-			<artifactId>spring-security-crypto</artifactId>
-		</dependency>
-
-		<!-- Generates the OpenAPI spec from the controllers and serves Swagger UI at /swagger-ui.html -->
-		<dependency>
-			<groupId>org.springdoc</groupId>
-			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-			<version>3.2.0</version>
-		</dependency>
-
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-actuator</artifactId>
-		</dependency>
-
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-webmvc-test</artifactId>
-			<scope>test</scope>
-		</dependency>
-
-	</dependencies>
 
 	<build>
-		<plugins>
-			<plugin>
-				<groupId>org.springframework.boot</groupId>
-				<artifactId>spring-boot-maven-plugin</artifactId>
-			</plugin>
-		</plugins>
+		<pluginManagement>
+			<plugins>
+				<plugin>
+					<groupId>org.apache.maven.plugins</groupId>
+					<artifactId>maven-surefire-plugin</artifactId>
+					<configuration>
+						<!-- Cucumber scenarios run through the JUnit Platform suite classes (*CucumberTest) -->
+						<includes>
+							<include>**/*Test.java</include>
+							<include>**/*Tests.java</include>
+						</includes>
+					</configuration>
+				</plugin>
+			</plugins>
+		</pluginManagement>
 	</build>
-
 </project>

@@ -1,0 +1,61 @@
+package ITubeBackend.service.payments;
+
+import ITubeBackend.common.client.IdentityClient;
+import ITubeBackend.dto.accounts.AccountDto;
+import ITubeBackend.entities.PaymentCustomerEntity;
+import ITubeBackend.repository.PaymentCustomerRepository;
+import com.stripe.exception.StripeException;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.UUID;
+
+@Service
+public class StripeCustomerService {
+    private final PaymentCustomerRepository customerRepository;
+    private final IdentityClient identity;
+    private final StripeApi stripe;
+
+    public StripeCustomerService(PaymentCustomerRepository customerRepository, IdentityClient identity,
+                                 StripeApi stripe) {
+        this.customerRepository = customerRepository;
+        this.identity = identity;
+        this.stripe = stripe;
+    }
+
+    /**
+     * Returns the user's Stripe Customer id, creating the customer on first use.
+     * Callers must hold the per-user lock ({@link PaymentCustomerRepository#lockUser}).
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public String getOrCreateCustomerId(long userId) {
+        return customerRepository.findByUserId(userId)
+                .map(PaymentCustomerEntity::getStripeCustomerId)
+                .orElseGet(() -> create(userId));
+    }
+
+    private String create(long userId) {
+        // The email lives in identity-service (cached 5 min); Stripe needs it for receipts
+        AccountDto account = identity.account(userId).orElse(null);
+        if (account == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Account not found");
+        try {
+            // Random part because user ids repeat across databases. Duplicate customers are prevented by the
+            // per-user lock plus the payment_customers row; the SDK reuses this key for its own retries.
+            String customerId = stripe.createCustomer(userId, account.email(), "itube-customer-" + userId + "-" + UUID.randomUUID());
+            customerRepository.save(new PaymentCustomerEntity(userId, customerId));
+            return customerId;
+        } catch (StripeException exception) {
+            throw new StripeCallException(exception);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public String requireCustomerId(long userId) {
+        return customerRepository.findByUserId(userId)
+                .map(PaymentCustomerEntity::getStripeCustomerId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "You have no billing account yet"));
+    }
+}

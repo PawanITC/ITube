@@ -1,0 +1,217 @@
+# transcode-worker: FFmpeg renditions, driven by Kafka (video.transcode -> video.transcoded). No database, no public API.
+# Scales on CPU up to the number of video.transcode partitions (6); more pods than partitions would sit idle.
+apiVersion: v1
+kind: Service
+metadata:
+  name: transcode-worker
+  labels:
+    app.kubernetes.io/name: transcode-worker
+spec:
+  selector:
+    app.kubernetes.io/name: transcode-worker
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transcode-worker
+  labels:
+    app.kubernetes.io/name: transcode-worker
+spec:
+  # Starting size; the HorizontalPodAutoscaler below adjusts it
+  replicas: 1
+  revisionHistoryLimit: 5
+  # Zero-downtime deploys: start a new pod, wait until it is ready, only then stop an old one
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: transcode-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: transcode-worker
+    spec:
+      serviceAccountName: backend
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 120
+      # Spread replicas over nodes and zones, so losing one node never takes the service down
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: transcode-worker
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: transcode-worker
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Wait for the dependencies instead of crash-looping while they start (same image, bash /dev/tcp)
+        - name: wait-for-dependencies
+          image: itube-transcode-worker
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -c
+            - |
+              for target in kafka:9092; do
+                host="${target%%:*}"; port="${target##*:}"
+                until (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null; do
+                  echo "waiting for ${target} ..."; sleep 3
+                done
+                echo "${target} is reachable"
+              done
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: transcode-worker
+          image: itube-transcode-worker
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          # Shared settings: Redis, Kafka, the other services' URLs, CDN (configmap.yaml)
+          envFrom:
+            - configMapRef:
+                name: itube-config
+          env:
+            # --- Object storage: AWS S3 (media_bucket_name output of deploy/terraform), via EKS Pod Identity ---
+            - name: STORAGE_BUCKET
+              value: itube-media-160198385987
+            - name: STORAGE_REGION
+              value: eu-west-2
+            # Empty = the AWS S3 endpoint; empty keys = the AWS default credential chain (the Pod Identity role)
+            - name: STORAGE_ENDPOINT
+              value: ""
+            - name: STORAGE_ACCESS_KEY
+              value: ""
+            - name: STORAGE_SECRET_KEY
+              value: ""
+            - name: STORAGE_PATH_STYLE
+              value: "false"
+            # Terraform owns the bucket; the role may not create buckets
+            - name: STORAGE_CREATE_BUCKET
+              value: "false"
+            - name: FFMPEG_PATH
+              value: ffmpeg
+            # Shared secret for /internal/** calls between services (optional; see deploy/README.md)
+            - name: INTERNAL_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: itube-secrets
+                  key: internal-api-token
+                  optional: true
+            # No OpenTelemetry collector in this cluster: switch the three OTLP exporters off (deploy/README.md)
+            - name: MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED
+              value: "false"
+            - name: MANAGEMENT_TRACING_EXPORT_OTLP_ENABLED
+              value: "false"
+            - name: MANAGEMENT_LOGGING_EXPORT_OTLP_ENABLED
+              value: "false"
+          # Give the Service time to stop routing here before shutdown starts, so deploys drop no requests
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60 # up to ~5 minutes for the first start (schema init, Kafka topics)
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            # Heap = 75% of the limit (JAVA_TOOL_OPTIONS in the image)
+            requests:
+              cpu: 500m
+              memory: 768Mi
+            limits:
+              cpu: "2"
+              memory: 1536Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 5Gi
+---
+# Adds pods when average CPU passes 70% of the request and removes them when load drops (needs metrics-server).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: transcode-worker
+  labels:
+    app.kubernetes.io/name: transcode-worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: transcode-worker
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+    scaleDown:
+      # Scale down slowly, so a short dip doesn't remove capacity that is needed again a minute later
+      stabilizationWindowSeconds: 300

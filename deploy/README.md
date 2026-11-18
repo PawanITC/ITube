@@ -1,67 +1,86 @@
 # Deploying ITube to EKS (dev)
 
-The workflow [`.github/workflows/deploy-eks.yml`](../.github/workflows/deploy-eks.yml) builds the backend and
-frontend images, pushes them to Amazon ECR and deploys the whole app to the EKS cluster `eks-lab-dev`
-(account `160198385987`, region `eu-west-2`), namespace `itube`.
+The workflow [`.github/workflows/deploy-eks.yml`](../.github/workflows/deploy-eks.yml) runs every test (unit + BDD),
+builds one image per service plus the gateway and frontend, pushes them to Amazon ECR and deploys the whole app to
+the EKS cluster `eks-lab-dev` (account `160198385987`, region `eu-west-2`), namespace `itube`.
 
-The AWS side (EKS cluster, namespace `itube`, `gp3` StorageClass, ECR repositories, deploy IAM role) is created
-with Terraform in [`terraform/`](terraform) (see its README). **Until that is applied, the deploy job fails** at
-the AWS login or `kubectl` step.
+| Directory | What | How it's applied |
+|---|---|---|
+| [`terraform/`](terraform) | AWS: VPC, EKS (+ metrics-server), ECR repositories, media bucket, IAM roles | `terraform apply` (see its README) |
+| [`k8s/`](k8s) | Kubernetes: data stores, the services, gateway, frontend | the deploy workflow (`kubectl apply -k`) |
+| [`k8s-cloudflare/`](k8s-cloudflare) | `k8s/` plus the Cloudflare Tunnel connector | the workflow, when `CLOUDFLARE_TUNNEL_TOKEN` is set |
+| [`cloudflare/`](cloudflare) | Cloudflare: DNS, tunnel, CDN cache rules, edge rate limit, media CDN | `terraform apply` (see its README) |
+| [`k8s-local/`](k8s-local) | `k8s/` on Docker Desktop's Kubernetes with SeaweedFS instead of S3 | by hand |
+
+**Until deploy/terraform is applied, the deploy job fails** at the AWS login or `kubectl` step.
+
+## Before the first deploy of the microservices version
+
+1. Apply [deploy/terraform](terraform) again. It adds the ECR repositories for the new images, the metrics-server
+   add-on (the HorizontalPodAutoscalers need it), S3 permissions for tagging and resumable uploads, and CORS on the
+   media bucket.
+2. Set the new GitHub secret `ITUBE_INTERNAL_API_TOKEN` (below).
+3. Optional: Cloudflare ([cloudflare/README.md](cloudflare/README.md)).
+
+The workflow deletes the old single `backend` Deployment and Service. The data (Postgres, ScyllaDB, Kafka volumes)
+is kept and migrated on start.
 
 ## What gets deployed
 
-All manifests are plain YAML in [`k8s/`](k8s), applied with `kubectl apply -k deploy/k8s`. They contain only
-namespaced objects (no Namespace, StorageClass, RBAC, Ingress or LoadBalancer).
+All manifests are plain YAML in [`k8s/`](k8s), applied with `kubectl apply -k`. They contain only namespaced
+objects (no Namespace, StorageClass, RBAC, Ingress or LoadBalancer).
 
-| Workload | Kind | Image | Service | Storage |
+| Workload | Kind | Replicas (HPA) | Image | Notes |
 |---|---|---|---|---|
-| `postgres` | StatefulSet | `postgres:17-alpine` | `postgres:5432` (headless) | PVC `data-postgres-0`, 20Gi `gp3` |
-| `scylla` | StatefulSet, 1 node (developer mode) | `scylladb/scylla:6.2` | `scylla:9042` (headless) | PVC `data-scylla-0`, 20Gi `gp3` |
-| `redis` | Deployment | `redis:7-alpine` | `redis:6379` | none (sessions are lost on restart) |
-| `kafka` | StatefulSet, single-node KRaft | `apache/kafka:4.0.0` | `kafka:9092` (headless) | PVC `data-kafka-0`, 5Gi `gp3` |
-| `backend` | Deployment (1 replica, Recreate) | `eks-lab/itube-backend:<git sha>` | `backend:8080` | `/tmp` emptyDir (3Gi) for uploads/FFmpeg |
-| `frontend` | Deployment | `eks-lab/itube-frontend:<git sha>` | `frontend:80` -> 8080 | none |
+| `identity` | Deployment | 2-4 | `eks-lab/itube-identity` | accounts, sign-in |
+| `catalog` | Deployment | 2-8 | `eks-lab/itube-catalog` | ServiceAccount `backend` (S3 via Pod Identity); shards `postgres` + `postgres-shard1` |
+| `engagement` | Deployment | 2-6 | `eks-lab/itube-engagement` | ScyllaDB |
+| `payments` | Deployment | 1-3 | `eks-lab/itube-payments` | Stripe secrets |
+| `transcode-worker` | Deployment | 1-4 | `eks-lab/itube-transcode-worker` | FFmpeg; ServiceAccount `backend`; 5 GiB `/tmp` |
+| `gateway` | Deployment | 2-6 | `eks-lab/itube-gateway` | nginx routing `/api/**` to the services |
+| `frontend` | Deployment | 1 | `eks-lab/itube-frontend` | nginx; `/api/` -> `gateway` |
+| `cloudflared` | Deployment (k8s-cloudflare only) | 2 | `cloudflare/cloudflared` | Cloudflare Tunnel |
+| `postgres` | StatefulSet | 1 | `postgres:17-alpine` | identity, payments, catalog shard 0; 20Gi `gp3` |
+| `postgres-shard1` | StatefulSet | 1 | `postgres:17-alpine` | catalog shard 1; 10Gi `gp3` |
+| `scylla` | StatefulSet | 1 (developer mode) | `scylladb/scylla:6.2` | 20Gi `gp3` |
+| `kafka` | StatefulSet | 1 (KRaft) | `apache/kafka:4.0.0` | 5Gi `gp3` |
+| `redis` | Deployment | 1 | `redis:7-alpine` | sessions (lost on restart) |
 
-- **backend** ([`backend/Dockerfile`](../backend/Dockerfile)): Spring Boot jar on Temurin 21 JRE with FFmpeg,
-  UID 10001, heap = 75% of the container memory limit.
-- **frontend** ([`frontend/Dockerfile`](../frontend/Dockerfile)): Vite build served by `nginx-unprivileged` on 8080.
-  nginx proxies `/api/` to `http://backend:8080`, exactly like the Vite dev proxy, so the browser sees one origin.
-  It allows 501 MB uploads, streams request bodies (`proxy_request_buffering off`), passes `Range` requests through
-  for video streaming and falls back to `index.html` for client-side routes.
-- **Media files** (videos, renditions, thumbnails) are in the S3 bucket from [`terraform/storage.tf`](terraform/storage.tf),
-  not in the cluster. The backend runs as ServiceAccount `backend`, which EKS Pod Identity maps to an IAM role for
-  that bucket, so there are no S3 keys. Playback redirects browsers to pre-signed S3 URLs.
-  SeaweedFS (the local S3 stand-in) only exists in the [`k8s-local`](k8s-local) overlay.
-- The Secret `itube-secrets` is **not** in the manifests; the workflow creates it from GitHub secrets.
-- All pods except ScyllaDB run as non-root with `allowPrivilegeEscalation: false`, all capabilities
-  dropped and `seccompProfile: RuntimeDefault` (Pod Security `restricted`). The ScyllaDB image
-  starts as root, so the namespace enforces `baseline` and only warns/audits on `restricted`
-  ([`terraform/kubernetes.tf`](terraform/kubernetes.tf)). Volume permissions for Postgres (UID 70) and Kafka
-  (UID 1000) are handled with `fsGroup`, not root init containers.
+Every service:
+
+- shares settings through the ConfigMap [`itube-config`](k8s/configmap.yaml) (Redis, Kafka, the other services'
+  URLs, `FRONTEND_BASE_URL`, `CDN_MEDIA_BASE_URL`) and secrets through `itube-secrets`;
+- listens on 8080 in the container, has startup/readiness/liveness probes on `/actuator/health/*`, a `preStop`
+  pause and graceful shutdown, so rolling deploys (`maxUnavailable: 0`) drop no requests;
+- is spread over nodes and zones, has a HorizontalPodAutoscaler (CPU 70%) and, with 2+ replicas, a
+  PodDisruptionBudget;
+- runs as non-root UID 10001 with a read-only root filesystem, no privilege escalation, all capabilities dropped and
+  `seccompProfile: RuntimeDefault` (Pod Security `restricted`). ScyllaDB's image starts as root, so the namespace
+  enforces `baseline` and only warns/audits on `restricted` ([`terraform/kubernetes.tf`](terraform/kubernetes.tf)).
+
+Media files are in the S3 bucket from [`terraform/storage.tf`](terraform/storage.tf), not in the cluster. catalog
+and transcode-worker run as ServiceAccount `backend`, which EKS Pod Identity maps to an IAM role for that bucket, so
+there are no S3 keys anywhere. SeaweedFS (the local S3 stand-in) only exists in the [`k8s-local`](k8s-local) overlay.
 
 ### Resource budget
 
-Two t3.large nodes (8 GiB each), shared with the system add-ons. Adding ScyllaDB took the requests past what two
-t3.medium nodes (~3.3 GiB allocatable each) can schedule.
+Two t3.large nodes (~7 GiB allocatable each), shared with the system add-ons. At their minimum replica counts:
 
-| Workload | CPU request | CPU limit | Memory request | Memory limit |
-|---|---|---|---|---|
-| backend | 500m | 1500m | 1536Mi | 2560Mi |
-| postgres | 250m | 1 | 512Mi | 1Gi |
-| scylla (`--memory 1G`) | 500m | 1 | 1536Mi | 2Gi |
-| kafka (heap 256-512 MB) | 250m | 1 | 768Mi | 1Gi |
-| redis | 50m | 250m | 64Mi | 256Mi |
-| frontend | 50m | 250m | 64Mi | 128Mi |
-| **Total** | **1600m** | 5 | **4480Mi (~4.4 GiB)** | ~6.9 GiB |
+| | Memory requested |
+|---|---|
+| Data stores: ScyllaDB 1.5 GiB, Kafka 768 MiB, Postgres 512 MiB + shard 256 MiB, Redis 64 MiB | ~3.1 GiB |
+| Services: 2x identity 384 MiB, 2x catalog 512 MiB, 2x engagement 384 MiB, payments 384 MiB, transcode 768 MiB | ~3.7 GiB |
+| Edge: 2x gateway, frontend, 2x cloudflared | ~0.2 GiB |
+| **Total** | **~6.9 GiB** |
 
-The backend init container (waits for Postgres, ScyllaDB, Redis and Kafka) requests 10m / 16Mi and
-only runs before the backend starts.
+That leaves about 5 GiB for the autoscalers to add pods under load. For more, raise `node_count` in
+deploy/terraform or add Karpenter / the cluster autoscaler.
 
 ### OpenTelemetry
 
-`application.properties` exports metrics, traces and logs over OTLP to `http://localhost:4318`, which does not exist
-in the cluster (without it the backend logs a connection error every 10 s). The backend Deployment turns the three
-exporters off with Spring Boot 4 properties, set as environment variables:
+The services export metrics, traces and logs over OTLP to `http://localhost:4318` by default, which does not exist
+in the cluster. Every Deployment turns the three exporters off with Spring Boot 4 properties set as environment
+variables:
 
 | Property | Env variable |
 |---|---|
@@ -69,12 +88,9 @@ exporters off with Spring Boot 4 properties, set as environment variables:
 | `management.tracing.export.otlp.enabled=false` | `MANAGEMENT_TRACING_EXPORT_OTLP_ENABLED` |
 | `management.logging.export.otlp.enabled=false` | `MANAGEMENT_LOGGING_EXPORT_OTLP_ENABLED` |
 
-(Names taken from the Spring Boot 4.1.1 configuration metadata; the Boot 3 names `management.otlp.tracing.export.enabled`
-and `management.otlp.logging.export.enabled` are deprecated with level `error` in Boot 4 and no longer work.)
-Tracing itself stays enabled, so trace/span ids are still printed in the console logs, and the OpenTelemetry SDK
-bean that `InstallOpenTelemetryAppender` needs still exists; it just has no exporter. No application code was
-changed. When a collector is added later, remove these three variables and point the
-`management.*.endpoint` / `management.otlp.metrics.export.url` properties at it.
+Tracing itself stays enabled, so trace/span ids still appear in the console logs (and are passed between services
+on every internal call). When a collector is added, remove these variables and point the `management.*.endpoint` /
+`management.otlp.metrics.export.url` properties at it.
 
 ## One-time GitHub setup (repository PawanITC/ITube)
 
@@ -96,88 +112,104 @@ changed. When a collector is added later, remove these three variables and point
 
    | Secret | Required | Value |
    |---|---|---|
-   | `ITUBE_DB_PASSWORD` | yes | random password for the `itube` Postgres user |
+   | `ITUBE_DB_PASSWORD` | yes | random password for the `itube` Postgres user (both Postgres servers) |
    | `ITUBE_PLAYBACK_SIGNING_KEY` | yes | 32+ random bytes, base64 |
+   | `ITUBE_INTERNAL_API_TOKEN` | strongly recommended | random string; services require it on `/internal/**` calls to each other |
    | `ITUBE_STRIPE_SECRET_KEY` | no | Stripe **test** key (`rk_test_...`/`sk_test_...`); without it payments return 503 |
-   | `ITUBE_STRIPE_WEBHOOK_SECRET` | no | `whsec_...` (webhooks need a public URL, so normally unused in this setup) |
+   | `ITUBE_STRIPE_WEBHOOK_SECRET` | no | `whsec_...` (webhooks need a public URL: Cloudflare) |
+   | `CLOUDFLARE_TUNNEL_TOKEN` | no | `terraform output -raw tunnel_token` in deploy/cloudflare; publishes the app |
 
    ```bash
    openssl rand -base64 32 | tr -d '\n' | gh secret set ITUBE_DB_PASSWORD --env dev --repo PawanITC/ITube
    openssl rand -base64 32 | tr -d '\n' | gh secret set ITUBE_PLAYBACK_SIGNING_KEY --env dev --repo PawanITC/ITube
+   openssl rand -base64 32 | tr -d '\n' | gh secret set ITUBE_INTERNAL_API_TOKEN --env dev --repo PawanITC/ITube
    # optional
    gh secret set ITUBE_STRIPE_SECRET_KEY --env dev --repo PawanITC/ITube      # prompts for the value
    gh secret set ITUBE_STRIPE_WEBHOOK_SECRET --env dev --repo PawanITC/ITube
-
-   # repository-level instead of environment-level:
-   openssl rand -base64 32 | tr -d '\n' | gh secret set ITUBE_DB_PASSWORD --repo PawanITC/ITube
    ```
 
    The workflow stops with a clear `::error::` if the variable or a required secret is missing.
 
    **Database password:** Postgres only reads it when the volume is first initialised. Changing
-   `ITUBE_DB_PASSWORD` later updates the Secret but not the database, so the backend can no longer log in. To
-   rotate it, change the password in Postgres first (`ALTER USER itube PASSWORD '...'`), then the GitHub secret.
+   `ITUBE_DB_PASSWORD` later updates the Secret but not the databases, so the services can no longer log in. To
+   rotate it, change the password in both Postgres servers first (`ALTER USER itube PASSWORD '...'`), then the
+   GitHub secret.
 
 ## Deploying
 
-- Automatically on every push to `master` that touches `backend/`, `frontend/`, `deploy/` or the workflow.
+- Automatically on every push to `master` that touches `backend/`, `frontend/`, `gateway/`, `deploy/k8s*` or the
+  workflow.
 - Manually: Actions -> *Deploy to EKS (dev)* -> *Run workflow*, or `gh workflow run deploy-eks.yml --repo PawanITC/ITube`.
 
-Steps: unit tests (backend `./mvnw test` with the in-memory H2 profile, frontend `vitest run`; neither needs
-external services) -> OIDC login to AWS -> build and push both images tagged with the commit SHA (skipped if the
-tag already exists, e.g. on a re-run) -> `aws eks update-kubeconfig` -> create/update Secret `itube-secrets` ->
-`kustomize edit set image` -> `kubectl apply -k deploy/k8s` -> `kubectl rollout status` for every workload.
-If the Secret changed, the backend is restarted so it picks up the new values. On failure the job prints pods,
+Steps:
+
+1. **Tests**: `./mvnw test` (unit tests and Cucumber scenarios of every service; no external services needed) and
+   `vitest run`. The Cucumber HTML reports are uploaded as an artifact.
+2. **Images** (in parallel): identity, catalog, engagement, payments, transcode-worker (all from
+   [`backend/Dockerfile`](../backend/Dockerfile) with `--build-arg SERVICE=...`), gateway and frontend, tagged with the
+   commit SHA and pushed to ECR (skipped if the tag already exists, e.g. on a re-run).
+3. **Deploy**: Secrets `itube-secrets` (and `cloudflare-tunnel`), `kustomize edit set image`, `kubectl apply -k`
+   ([`k8s`](k8s), or [`k8s-cloudflare`](k8s-cloudflare) when the tunnel token is set), delete the old `backend`
+   Deployment, `kubectl rollout status` for every workload.
+
+If the Secret changed, the services are restarted so they pick up the new values. On failure the job prints pods,
 events, `describe` output and recent logs. Deploys never run in parallel (`concurrency: deploy-eks-dev`).
 
-The first deploy takes longest: EBS volumes are created, images pulled and the backend creates its schema
-(the startup probe allows ~5 minutes).
+The first deploy takes longest: EBS volumes are created, images pulled and the services create their schemas
+(the startup probes allow ~5 minutes).
 
 ## Opening the app
 
-There is no public endpoint (no Ingress/LoadBalancer, to save cost). With AWS credentials that can access the
-cluster:
+**With Cloudflare** ([cloudflare/README.md](cloudflare/README.md)): `https://itube.<your domain>`.
+
+**Without it** (no public endpoint), with AWS credentials that can access the cluster:
 
 ```bash
 aws eks update-kubeconfig --region eu-west-2 --name eks-lab-dev
 kubectl port-forward -n itube svc/frontend 3000:80
 # App: http://localhost:3000
 
-# Swagger UI / API directly (second terminal):
-kubectl port-forward -n itube svc/backend 8080:8080
-# http://localhost:8080/swagger-ui.html
+# Swagger UI of one service (second terminal):
+kubectl port-forward -n itube svc/catalog 8082:8080
+# http://localhost:8082/swagger-ui.html
 ```
 
-`FRONTEND_BASE_URL` is `http://localhost:3000`, matching the port-forward (used for Stripe redirect URLs).
+`FRONTEND_BASE_URL` (ConfigMap `itube-config`) is `https://itube.fun` for Stripe redirect URLs. The local Kubernetes
+overlay overrides it to `http://localhost:3000`. When testing Stripe through an EKS port-forward, override it to
+the local URL for that deployment.
 
 ## Logs and troubleshooting
 
 ```bash
-kubectl -n itube get pods,svc,pvc
-kubectl -n itube logs deploy/backend -f
-kubectl -n itube logs deploy/backend -c wait-for-dependencies   # stuck in Init?
-kubectl -n itube logs deploy/frontend
+kubectl -n itube get pods,svc,pvc,hpa
+kubectl -n itube logs deploy/catalog -f                     # any service: identity, catalog, engagement, payments...
+kubectl -n itube logs deploy/catalog -c wait-for-dependencies   # stuck in Init?
+kubectl -n itube logs deploy/gateway
 kubectl -n itube logs statefulset/postgres
-kubectl -n itube logs statefulset/kafka
-kubectl -n itube describe pod -l app.kubernetes.io/name=backend
+kubectl -n itube logs statefulset/postgres-shard1
+kubectl -n itube describe hpa catalog                       # why it did (not) scale
 kubectl -n itube get events --sort-by=.lastTimestamp
 ```
 
-Render the manifests locally: `kubectl kustomize deploy/k8s`.
+Render the manifests locally: `kubectl kustomize deploy/k8s` (or `deploy/k8s-cloudflare`).
 
 ## Data persistence
 
-- Postgres (all app data, including uploaded videos and renditions) and Kafka live on EBS-backed PVCs
-  (`data-postgres-0`, `data-kafka-0`). They survive redeploys, pod restarts and node replacement.
+- Postgres (identity, payments, catalog shard 0), postgres-shard1 (catalog shard 1), ScyllaDB and Kafka live on
+  EBS-backed PVCs. They survive redeploys, pod restarts and node replacement.
+- Videos, renditions and thumbnails are in S3, not in the cluster.
 - Redis has no persistence: a restart only logs everyone out.
 - **Destroying the EKS environment (or deleting the namespace `itube`) deletes the PVCs and therefore all data.**
-  Back up first if needed: `kubectl -n itube exec postgres-0 -- pg_dump -U itube itube > itube.sql`.
-- Videos are stored in Postgres and renditions travel through Kafka as base64 (up to 100 MB records); that is
-  fine for a dev demo, not for production-scale media. Kafka keeps messages 24 h / 512 MiB per partition so the
-  5Gi volume does not fill up.
+  Back up first if needed:
+  ```bash
+  kubectl -n itube exec postgres-0 -- pg_dump -U itube itube > itube.sql
+  kubectl -n itube exec postgres-shard1-0 -- pg_dump -U itube itube > itube-shard1.sql
+  ```
 
 ## Assumptions about the infra side
 
-- Namespace `itube` exists; the deploy role has `AmazonEKSEditPolicy` scoped to it (enough for everything here).
+- Namespace `itube` exists; the deploy role has `AmazonEKSEditPolicy` scoped to it (enough for everything here,
+  including HPAs and PodDisruptionBudgets).
 - StorageClass `gp3` exists (EBS CSI driver).
 - The node role can pull from ECR (`AmazonEC2ContainerRegistryReadOnly`).
+- The metrics-server add-on is installed (deploy/terraform/eks.tf), or the HPAs show `<unknown>` and never scale.

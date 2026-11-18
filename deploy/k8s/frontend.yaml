@@ -1,4 +1,4 @@
-# React build served by unprivileged nginx; /api/ is proxied to the backend Service.
+# React build served by unprivileged nginx; /api/ is proxied to the gateway Service, which routes to the microservices.
 # Open with:  kubectl port-forward -n itube svc/frontend 3000:80
 apiVersion: v1
 kind: Service

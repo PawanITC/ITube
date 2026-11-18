@@ -11,7 +11,16 @@ $EnvFile = "$Root\backend\.env"
 $EnvExample = "$Root\backend\.env.example"
 $Compose = @('compose', '--project-directory', $Root, '--env-file', $EnvFile, '-f', "$Root\docker-compose.yml")
 $PidFile = "$Root\.dev-pids"
-$Services = @('postgres', 'scylla', 'seaweedfs', 'redis', 'kafka', 'grafana-lgtm')
+# Infrastructure, the API gateway (:8080) and the transcode worker (needs FFmpeg, so it runs in a container)
+$Services = @('postgres', 'postgres-shard1', 'scylla', 'seaweedfs', 'redis', 'kafka', 'grafana-lgtm', 'gateway', 'transcode-worker')
+# The microservices run on this machine, one window each (java -jar), so you can see their logs and restart one
+$Apps = @(
+    @{ Name = 'identity-service'; Port = 8081 },
+    @{ Name = 'catalog-service'; Port = 8082 },
+    @{ Name = 'engagement-service'; Port = 8083 },
+    @{ Name = 'payments-service'; Port = 8084 }
+)
+$AppPorts = @($Apps | ForEach-Object { $_.Port })
 
 function Say($text, $colour = 'Cyan') { Write-Host "==> $text" -ForegroundColor $colour }
 function Fail($text) { Write-Host "XX  $text" -ForegroundColor Red; exit 1 }
@@ -37,12 +46,12 @@ function Set-EnvValue($key, $value) {
 }
 
 function Stop-Dev {
-    Say 'Stopping backend and frontend'
+    Say 'Stopping the services and the frontend'
     if (Test-Path $PidFile) {
         Get-Content $PidFile | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
         Remove-Item $PidFile -Force
     }
-    foreach ($port in 8080, 3000) {
+    foreach ($port in @($AppPorts) + 3000) {
         $owner = Get-PortOwner $port
         if ($owner) { Stop-Process -Id $owner -Force -ErrorAction SilentlyContinue }
     }
@@ -53,9 +62,9 @@ function Stop-Dev {
 
 function Show-Status {
     if (Test-Path $EnvFile) { & docker @Compose ps --format 'table {{.Service}}\t{{.Status}}' 2>$null }
-    foreach ($entry in @(@{ Name = 'Backend  (8080)'; Port = 8080 }, @{ Name = 'Frontend (3000)'; Port = 3000 })) {
+    foreach ($entry in @($Apps) + @(@{ Name = 'frontend'; Port = 3000 })) {
         $state = if (Get-PortOwner $entry.Port) { 'running' } else { 'stopped' }
-        Write-Host ("{0}  {1}" -f $entry.Name, $state)
+        Write-Host ("{0,-20} :{1}  {2}" -f $entry.Name, $entry.Port, $state)
     }
 }
 
@@ -77,7 +86,7 @@ function Start-Dev {
     Assert-Tool 'docker' 'Install Docker Desktop: https://www.docker.com/products/docker-desktop/'
     Assert-Tool 'java' 'Install Java 21 (e.g. winget install EclipseAdoptium.Temurin.21.JDK).'
     Assert-Tool 'npm' 'Install Node.js 22 or newer (e.g. winget install OpenJS.NodeJS.LTS).'
-    foreach ($port in 8080, 3000) {
+    foreach ($port in @($AppPorts) + 3000) {
         if (Get-PortOwner $port) { Fail "Port $port is already in use. Run '.\dev.cmd stop' (or close whatever is using it) first." }
     }
     Initialize-EnvFile
@@ -94,12 +103,15 @@ function Start-Dev {
     & docker info *> $null
     if ($LASTEXITCODE -ne 0) {
         Say 'Starting Docker Desktop (this can take a minute)' 'Yellow'
-        Start-Process "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe" -ErrorAction SilentlyContinue
+        # Machine-wide or per-user installation of Docker Desktop
+        foreach ($exe in "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe", "$env:LOCALAPPDATA\Programs\DockerDesktop\Docker Desktop.exe") {
+            if (Test-Path $exe) { Start-Process $exe -ErrorAction SilentlyContinue; break }
+        }
         for ($i = 0; $i -lt 90; $i++) { Start-Sleep 2; & docker info *> $null; if ($LASTEXITCODE -eq 0) { break } }
         if ($LASTEXITCODE -ne 0) { Fail 'Docker did not start. Open Docker Desktop, wait until it says it is running, and try again.' }
     }
 
-    Say "Starting $($services -join ', ') (the first run downloads images and can take a few minutes)"
+    Say "Starting $($services -join ', ') (the first run downloads images and builds the transcode worker: a few minutes)"
     & docker @Compose up -d @services
     if ($LASTEXITCODE -ne 0) {
         Fail ("docker compose failed (see above). If it mentions a port that is already allocated, another copy of the " +
@@ -125,24 +137,39 @@ function Start-Dev {
         Push-Location "$Root\frontend"; npm install --no-fund --no-audit; Pop-Location
     }
 
-    Say 'Opening the backend in its own window'
-    $backend = Start-Process powershell -PassThru -WorkingDirectory "$Root\backend" -ArgumentList @(
-        '-NoExit', '-Command', "`$Host.UI.RawUI.WindowTitle = 'ITube backend'; .\mvnw.cmd spring-boot:run")
-    @($backend.Id) | Set-Content $PidFile
+    Say 'Building the services (the first build downloads dependencies and can take a few minutes)'
+    Push-Location "$Root\backend"
+    & .\mvnw.cmd -q -B -DskipTests install
+    $built = $LASTEXITCODE -eq 0
+    Pop-Location
+    if (-not $built) { Fail 'The build failed (see above).' }
 
-    Say 'Waiting for the backend to be healthy (the first start downloads dependencies and can take a few minutes)'
-    $healthy = $false
-    for ($i = 0; $i -lt 150 -and -not $healthy; $i++) {
-        Start-Sleep 2
-        try { $healthy = (Invoke-RestMethod -Uri 'http://localhost:8080/actuator/health' -TimeoutSec 3).status -eq 'UP' } catch { }
+    # Each service in its own window, started from backend\ so they all read backend\.env
+    $pids = @()
+    foreach ($app in $Apps) {
+        Say "Opening $($app.Name) (port $($app.Port)) in its own window"
+        $jar = "$($app.Name)\target\$($app.Name)-0.0.1-SNAPSHOT.jar"
+        $process = Start-Process powershell -PassThru -WorkingDirectory "$Root\backend" -ArgumentList @(
+            '-NoExit', '-Command', "`$Host.UI.RawUI.WindowTitle = 'ITube $($app.Name)'; java -Xmx512m -jar $jar")
+        $pids += $process.Id
     }
-    if (-not $healthy) { Fail 'The backend did not become healthy. Check the "ITube backend" window for the error.' }
+    $pids | Set-Content $PidFile
+
+    Say 'Waiting for the services to be healthy'
+    foreach ($app in $Apps) {
+        $healthy = $false
+        for ($i = 0; $i -lt 150 -and -not $healthy; $i++) {
+            try { $healthy = (Invoke-RestMethod -Uri "http://localhost:$($app.Port)/actuator/health/readiness" -TimeoutSec 3).status -eq 'UP' } catch { Start-Sleep 2 }
+        }
+        if (-not $healthy) { Fail "$($app.Name) did not become healthy. Check the 'ITube $($app.Name)' window for the error." }
+        Say "$($app.Name) is up" 'Green'
+    }
 
     # Started only now, so the browser (opened by Vite) never hits a backend that isn't ready yet
     Say 'Opening the frontend in its own window'
     $frontend = Start-Process powershell -PassThru -WorkingDirectory "$Root\frontend" -ArgumentList @(
         '-NoExit', '-Command', "`$Host.UI.RawUI.WindowTitle = 'ITube frontend'; npm run dev")
-    @($backend.Id, $frontend.Id) | Set-Content $PidFile
+    @($pids) + $frontend.Id | Set-Content $PidFile
     for ($i = 0; $i -lt 30; $i++) {
         try { Invoke-WebRequest -Uri 'http://localhost:3000' -UseBasicParsing -TimeoutSec 2 | Out-Null; break } catch { Start-Sleep 1 }
     }
@@ -151,7 +178,8 @@ function Start-Dev {
     Say 'Everything is running:' 'Green'
     Write-Host '   App          http://localhost:3000   (opens automatically)'
     Write-Host '   Showcase     http://localhost:3000/demo   (guided tour of the new features)'
-    Write-Host '   Swagger      http://localhost:8080/swagger-ui.html'
+    Write-Host '   API gateway  http://localhost:8080   (routes /api/** to the services)'
+    Write-Host '   Swagger      http://localhost:8081/swagger-ui.html (identity), :8082 catalog, :8083 engagement, :8084 payments'
     Write-Host '   Grafana      http://localhost:3080'
     if ($stripeReady) { Write-Host '   Test card    4242 4242 4242 4242, any future date, any CVC' }
     Write-Host '   Stop         .\dev.cmd stop'

@@ -26,9 +26,11 @@ variable "vpc_cidr" {
 }
 
 variable "node_instance_type" {
-  # The pods in deploy/k8s request ~4.4 GiB of memory (ScyllaDB 1.5 GiB, backend 1.5 GiB, Kafka 768 MiB,
-  # Postgres 512 MiB, Redis, frontend) before system pods. 2 x t3.medium (~3.3 GiB allocatable each) leaves
-  # no headroom, and the EBS-backed StatefulSets are pinned to their volume's AZ.
+  # At their minimum replica counts the pods in deploy/k8s request ~6.9 GiB of memory: data stores ~3.1 GiB (ScyllaDB
+  # 1.5 GiB, Kafka 768 MiB, Postgres 512 MiB + shard 256 MiB, Redis) and services ~3.8 GiB (2x identity, 2x catalog,
+  # 2x engagement, 2x gateway, payments, transcode-worker, frontend, 2x cloudflared). 2 x t3.large (~7 GiB allocatable
+  # each) leaves ~5 GiB for the HorizontalPodAutoscalers to add pods under load; raise node_count (or add the
+  # cluster autoscaler) for more. The EBS-backed StatefulSets are pinned to their volume's AZ.
   description = "Instance type of the managed node group (8 GiB t3.large: room for Postgres + ScyllaDB + Kafka)."
   type        = string
   default     = "t3.large"
@@ -76,7 +78,18 @@ variable "deploy_role_name" {
 variable "ecr_repositories" {
   description = "ECR repositories the workflow pushes to."
   type        = list(string)
-  default     = ["eks-lab/itube-backend", "eks-lab/itube-frontend"]
+  # itube-backend is the pre-microservices image; kept so its repository (and old images) isn't destroyed. Remove it
+  # once nothing needs those images (ECR refuses to delete a repository that still has images).
+  default = [
+    "eks-lab/itube-backend",
+    "eks-lab/itube-frontend",
+    "eks-lab/itube-gateway",
+    "eks-lab/itube-identity",
+    "eks-lab/itube-catalog",
+    "eks-lab/itube-engagement",
+    "eks-lab/itube-payments",
+    "eks-lab/itube-transcode-worker",
+  ]
 }
 
 variable "ecr_keep_images" {
@@ -86,7 +99,7 @@ variable "ecr_keep_images" {
 }
 
 variable "backend_service_account" {
-  description = "Kubernetes service account of the backend pod; the media bucket role is bound to it through EKS Pod Identity."
+  description = "Kubernetes service account of catalog-service and transcode-worker; the media bucket role is bound to it through EKS Pod Identity."
   type        = string
   default     = "backend"
 }
@@ -100,5 +113,17 @@ variable "media_bucket_name" {
 variable "media_bucket_force_destroy" {
   description = "Let `terraform destroy` delete the media bucket even when it still holds objects (dev only)."
   type        = bool
-  default     = true
+  default     = false
+}
+
+variable "media_bucket_allow_public_policy" {
+  description = "Allow a bucket policy granting public reads (needed for the Cloudflare media CDN, deploy/cloudflare enable_media_cdn). The policy itself only admits Cloudflare IPs and objects tagged public=true."
+  type        = bool
+  default     = false
+}
+
+variable "media_bucket_cors_origins" {
+  description = "Origins allowed to upload parts straight to the media bucket (the app URL, e.g. https://itube.example.com)."
+  type        = list(string)
+  default     = ["https://itube.fun", "http://localhost:3000"]
 }
