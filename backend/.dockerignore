@@ -1,5 +1,5 @@
 # Keep the build context small and never send local secrets to the Docker daemon
-target/
+**/target/
 .env
 .env.*
 !.env.example
@@ -8,7 +8,7 @@ target/
 *.iml
 *.log
 HELP.md
-HISTORY.md
+*.md
 .mvn/wrapper/maven-wrapper.jar
 Dockerfile
 .dockerignore

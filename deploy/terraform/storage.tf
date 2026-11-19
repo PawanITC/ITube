@@ -1,7 +1,7 @@
 # Object storage for video sources, renditions and thumbnails (docs/DATA-ARCHITECTURE.md, "media" domain).
 #
-# The backend (deploy/k8s/backend.yaml) reaches this bucket through EKS Pod Identity (no access keys): its pod runs
-# as the service account var.backend_service_account, which the association at the bottom maps to the IAM role.
+# catalog-service and transcode-worker (deploy/k8s) reach this bucket through EKS Pod Identity (no access keys): their
+# pods run as the service account var.backend_service_account, which the association at the bottom maps to the IAM role.
 # Its STORAGE_BUCKET env value must equal the bucket name (output media_bucket_name).
 # SeaweedFS is only the local stand-in (docker-compose.yml, deploy/k8s-local).
 
@@ -21,11 +21,27 @@ resource "aws_s3_bucket" "media" {
 resource "aws_s3_bucket_public_access_block" "media" {
   bucket = aws_s3_bucket.media.id
 
-  # Browsers only ever get pre-signed URLs, never public objects
+  # Browsers get pre-signed URLs. The only exception is the Cloudflare media CDN (deploy/cloudflare/media.tf), whose
+  # bucket policy lets Cloudflare (and only Cloudflare) read objects tagged public=true. That policy is only allowed
+  # when media_bucket_allow_public_policy = true.
   block_public_acls       = true
-  block_public_policy     = true
+  block_public_policy     = !var.media_bucket_allow_public_policy
   ignore_public_acls      = true
-  restrict_public_buckets = true
+  restrict_public_buckets = !var.media_bucket_allow_public_policy
+}
+
+# Browsers PUT upload parts straight to the bucket with pre-signed URLs (resumable uploads), so the bucket must
+# allow those cross-origin requests from the app, and expose the ETag the browser reports back for each part.
+resource "aws_s3_bucket_cors_configuration" "media" {
+  bucket = aws_s3_bucket.media.id
+
+  cors_rule {
+    allowed_methods = ["PUT", "GET", "HEAD"]
+    allowed_origins = var.media_bucket_cors_origins
+    allowed_headers = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3600
+  }
 }
 
 resource "aws_s3_bucket_ownership_controls" "media" {
@@ -94,6 +110,11 @@ data "aws_iam_policy_document" "backend_storage" {
       "s3:PutObject",
       "s3:DeleteObject",
       "s3:AbortMultipartUpload",
+      # Resuming an upload asks S3 which parts it already has
+      "s3:ListMultipartUploadParts",
+      # public=true/false tags decide what the Cloudflare media CDN may serve (catalog-service MediaCdn)
+      "s3:PutObjectTagging",
+      "s3:GetObjectTagging",
     ]
     resources = ["${aws_s3_bucket.media.arn}/*"]
   }

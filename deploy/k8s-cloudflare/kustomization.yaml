@@ -1,0 +1,16 @@
+# ITube on EKS, published through Cloudflare (DNS + CDN + Tunnel). Everything in deploy/k8s, plus cloudflared.
+# The deploy workflow applies this overlay when the GitHub secret CLOUDFLARE_TUNNEL_TOKEN is set.
+#   kubectl kustomize deploy/k8s-cloudflare
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: itube
+
+resources:
+  - ../k8s
+  - cloudflared.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: itube
+    includeSelectors: false

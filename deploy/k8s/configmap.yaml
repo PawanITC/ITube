@@ -1,0 +1,28 @@
+# Settings every ITube service shares (loaded with envFrom). Secrets are in the Secret itube-secrets, created by
+# the deploy workflow, never here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: itube-config
+data:
+  # application properties hardcode localhost for Redis; env vars take precedence
+  SPRING_DATA_REDIS_HOST: redis
+  SPRING_DATA_REDIS_PORT: "6379"
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  # Shared dev Postgres has 100 connections. At HPA maxima plus one rolling pod per service,
+  # identity (5), catalog (9) and payments (4) use at most 72, leaving operational headroom.
+  SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "4"
+  ITUBE_SHARDING_MAXIMUMPOOLSIZE: "4"
+  # Where the services find each other (Kubernetes Services, plain HTTP inside the cluster)
+  IDENTITY_SERVICE_URL: http://identity:8080
+  CATALOG_SERVICE_URL: http://catalog:8080
+  ENGAGEMENT_SERVICE_URL: http://engagement:8080
+  PAYMENTS_SERVICE_URL: http://payments:8080
+  # Where the browser lands after Stripe Checkout. With Cloudflare: https://<app_hostname> (deploy/cloudflare)
+  FRONTEND_BASE_URL: https://itube.fun
+  API_DOCS_ENABLED: "true"
+  # Public media through the Cloudflare CDN, e.g. https://media.itube.example.com (docs/CDN-AND-DNS.md).
+  # Empty = no CDN: viewers get pre-signed S3 URLs.
+  CDN_MEDIA_BASE_URL: ""
+  # One Kafka broker here; raise with the broker count (3 in production)
+  ITUBE_TOPICS_REPLICAS: "1"

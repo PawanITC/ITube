@@ -1,9 +1,9 @@
 # GitHub Actions -> AWS via OIDC: the identity provider and the deploy role used by
 # .github/workflows/deploy-eks.yml (variable AWS_DEPLOY_ROLE_ARN).
 
-resource "aws_iam_openid_connect_provider" "github" {
-  url            = "https://token.actions.githubusercontent.com"
-  client_id_list = ["sts.amazonaws.com"]
+data "aws_iam_openid_connect_provider" "github" {
+  # Account-wide provider is shared with the bootstrap stack; do not take ownership here.
+  url = "https://token.actions.githubusercontent.com"
 }
 
 data "aws_iam_policy_document" "github_deploy_assume" {
@@ -12,7 +12,7 @@ data "aws_iam_policy_document" "github_deploy_assume" {
 
     principals {
       type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.github.arn]
+      identifiers = [data.aws_iam_openid_connect_provider.github.arn]
     }
 
     condition {

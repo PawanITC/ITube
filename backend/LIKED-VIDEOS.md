@@ -1,5 +1,12 @@
 # Liked videos: beginner walkthrough
 
+> **Now part of engagement-service.** Since the split into microservices, this feature lives in
+> [engagement-service](engagement-service) (code under `engagement-service/src/main/java/ITubeBackend`, tests under
+> `engagement-service/src/test`). It runs on port 8083 locally and is reached through the API gateway on 8080, so the
+> URLs below are unchanged. Video details come from catalog-service ([docs/MICROSERVICES.md](../docs/MICROSERVICES.md)).
+> Paths and run commands further down describe the original single application.
+
+
 > **Storage has moved.** Likes now live in ScyllaDB (`likes_by_user`, `like_lookup`, `likes_by_video`), not the
 > PostgreSQL `liked_video` table. See [docs/DATA-ARCHITECTURE.md](../docs/DATA-ARCHITECTURE.md).
 > The PostgreSQL notes below describe the original implementation.

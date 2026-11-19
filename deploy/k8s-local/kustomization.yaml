@@ -1,3 +1,8 @@
+# ITube on a local Kubernetes (Docker Desktop): everything in deploy/k8s, with SeaweedFS instead of S3.
+# Build the images with the tag `local` first, e.g.:
+#   docker build --build-arg SERVICE=catalog-service -t itube-catalog:local backend
+#   docker build -t itube-gateway:local gateway
+# The Secret itube-secrets needs db-password, playback-signing-key and storage-secret-key (SeaweedFS).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -6,25 +11,45 @@ resources:
   - seaweedfs.yaml
 # The base has already renamed the images to their ECR names, so match on those.
 images:
-  - name: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-backend
-    newName: itube-backend
+  - name: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-identity
+    newName: itube-identity
+    newTag: local
+  - name: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-catalog
+    newName: itube-catalog
+    newTag: local
+  - name: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-engagement
+    newName: itube-engagement
+    newTag: local
+  - name: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-payments
+    newName: itube-payments
+    newTag: local
+  - name: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-transcode-worker
+    newName: itube-transcode-worker
+    newTag: local
+  - name: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-gateway
+    newName: itube-gateway
     newTag: local
   - name: 160198385987.dkr.ecr.eu-west-2.amazonaws.com/eks-lab/itube-frontend
     newName: itube-frontend
     newTag: local
 patches:
+  - target: { kind: ConfigMap, name: itube-config }
+    patch: |
+      - op: replace
+        path: /data/FRONTEND_BASE_URL
+        value: http://localhost:3000
   - target: { kind: StatefulSet }
     patch: |
       - op: replace
         path: /spec/volumeClaimTemplates/0/spec/storageClassName
         value: hostpath
-  # The base backend uses AWS S3 through EKS Pod Identity; locally it uses SeaweedFS with static keys
-  - target: { kind: Deployment, name: backend }
+  # The base reaches AWS S3 through EKS Pod Identity; locally the media services use SeaweedFS with static keys
+  - target: { kind: Deployment, name: catalog }
     patch: |
       apiVersion: apps/v1
       kind: Deployment
       metadata:
-        name: backend
+        name: catalog
       spec:
         template:
           spec:
@@ -34,7 +59,7 @@ patches:
                   - bash
                   - -c
                   - |
-                    for target in postgres:5432 scylla:9042 seaweedfs:8333 redis:6379 kafka:9092; do
+                    for target in postgres:5432 postgres-shard1:5432 seaweedfs:8333 redis:6379 kafka:9092; do
                       host="${target%%:*}"; port="${target##*:}"
                       until (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null; do
                         echo "waiting for ${target} ..."; sleep 3
@@ -42,7 +67,7 @@ patches:
                       echo "${target} is reachable"
                     done
             containers:
-              - name: backend
+              - name: catalog
                 env:
                   - name: STORAGE_BUCKET
                     value: itube-media
@@ -62,6 +87,34 @@ patches:
                     value: "true"
                   - name: STORAGE_CREATE_BUCKET
                     value: "true"
-                  # Browsers can't follow a pre-signed URL to http://seaweedfs:8333: stream through the backend
-                  - name: ITUBE_STORAGE_REDIRECT_PLAYBACK
+                  # Browsers can't follow a pre-signed URL to http://seaweedfs:8333: stream through the service
+                  - name: STORAGE_REDIRECT_PLAYBACK
                     value: "false"
+  - target: { kind: Deployment, name: transcode-worker }
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: transcode-worker
+      spec:
+        template:
+          spec:
+            containers:
+              - name: transcode-worker
+                env:
+                  - name: STORAGE_BUCKET
+                    value: itube-media
+                  - name: STORAGE_REGION
+                    value: us-east-1
+                  - name: STORAGE_ENDPOINT
+                    value: http://seaweedfs:8333
+                  - name: STORAGE_ACCESS_KEY
+                    value: itube
+                  - name: STORAGE_SECRET_KEY
+                    value: null
+                    valueFrom:
+                      secretKeyRef:
+                        name: itube-secrets
+                        key: storage-secret-key
+                  - name: STORAGE_PATH_STYLE
+                    value: "true"

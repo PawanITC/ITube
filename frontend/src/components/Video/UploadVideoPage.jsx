@@ -1,4 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { isAbort, isSameFile, uploadMissingParts, uploadsApi } from './resumableUpload';
+
+function formatBytes(bytes) {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  if (bytes >= 1024 ** 2) return `${Math.round(bytes / 1024 ** 2)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+function formatDate(isoDate) {
+  return new Date(isoDate).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+}
 
 function formatDuration(seconds) {
   const totalSeconds = Math.round(seconds);
@@ -61,10 +72,35 @@ export default function UploadVideoPage({ session, onCancel }) {
   const [requiredTierLevel, setRequiredTierLevel] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadingTitle, setUploadingTitle] = useState('');
+  const [openUploads, setOpenUploads] = useState([]);
+  const [resumeTarget, setResumeTarget] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const fileInput = useRef(null);
   const thumbnailInput = useRef(null);
+  const resumeInput = useRef(null);
+  const uploadAbort = useRef(null);
+
+  const refreshOpenUploads = useCallback(() => {
+    uploadsApi.listOpen()
+      .then(setOpenUploads)
+      .catch(() => { /* The list is a convenience; uploading still works without it. */ });
+  }, []);
+
+  useEffect(() => {
+    if (activeSession) refreshOpenUploads();
+  }, [activeSession, refreshOpenUploads]);
+
+  // Leaving the page pauses the upload; it can be resumed later from "Unfinished uploads"
+  useEffect(() => () => uploadAbort.current?.abort(), []);
+
+  useEffect(() => {
+    if (!uploading) return undefined;
+    const warn = event => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [uploading]);
 
   useEffect(() => {
     if (!thumbnail) {
@@ -137,43 +173,45 @@ export default function UploadVideoPage({ session, onCancel }) {
       return;
     }
 
-    const form = new FormData();
-    form.append('file', file);
-    form.append('title', title.trim());
-    form.append('duration', duration);
-    form.append('visibility', visibility);
-    if (visibility === 'MEMBERS_ONLY' && requiredTierLevel) form.append('requiredTierLevel', requiredTierLevel);
-    if (thumbnail) form.append('thumbnail', thumbnail, thumbnail.name || 'thumbnail.jpg');
-
+    if (uploading) return;
     setUploading(true);
-    setUploadProgress(0);
+    let upload;
     try {
-      await new Promise((resolve, reject) => {
-        const request = new XMLHttpRequest();
-        request.open('POST', '/api/videos');
-        request.withCredentials = true;
-        request.upload.onprogress = progressEvent => {
-          if (progressEvent.lengthComputable) {
-            setUploadProgress(Math.min(100, Math.round((progressEvent.loaded / progressEvent.total) * 100)));
-          }
-        };
-        request.onload = () => {
-          if (request.status === 401) {
-            reject(new Error('Your session expired. Click the ITube logo to start a new session.'));
-            return;
-          }
-          if (request.status < 200 || request.status >= 300) {
-            let problem;
-            try { problem = JSON.parse(request.responseText); } catch { /* The response may not contain JSON. */ }
-            reject(new Error(problem?.detail || 'Upload failed. Please try again.'));
-            return;
-          }
-          resolve();
-        };
-        request.onerror = () => reject(new Error('Upload failed because of a network error. Please try again.'));
-        request.onabort = () => reject(new Error('Upload was cancelled.'));
-        request.send(form);
+      // Picking a file that already has an unfinished upload continues that upload
+      upload = await uploadsApi.start({
+        fileName: file.name,
+        fileSize: file.size,
+        lastModified: file.lastModified,
+        contentType: file.type,
+        title: title.trim(),
+        duration,
+        visibility,
+        requiredTierLevel: visibility === 'MEMBERS_ONLY' && requiredTierLevel ? Number(requiredTierLevel) : null,
       });
+    } catch (startError) {
+      setError(startError.message || 'Upload failed. Please try again.');
+      setUploading(false);
+      return;
+    }
+    await runUpload(upload, file, thumbnail);
+  }
+
+  /** Sends the parts of `upload` that object storage doesn't have yet, then posts the video. */
+  async function runUpload(upload, videoFile, videoThumbnail) {
+    const controller = new AbortController();
+    uploadAbort.current = controller;
+    setUploading(true);
+    setUploadingTitle(upload.title);
+    setUploadProgress(Math.floor((upload.uploadedBytes / upload.fileSize) * 100));
+    setError('');
+    setSuccess('');
+    try {
+      const current = await uploadsApi.get(upload.uploadId, controller.signal);
+      await uploadMissingParts(videoFile, current, {
+        signal: controller.signal,
+        onProgress: fraction => setUploadProgress(Math.min(99, Math.floor(fraction * 100))),
+      });
+      await uploadsApi.complete(upload.uploadId, videoThumbnail);
       setUploadProgress(100);
       setSuccess('Your video was posted. Quality options are processing in the background.');
       setFile(null);
@@ -183,10 +221,58 @@ export default function UploadVideoPage({ session, onCancel }) {
       if (fileInput.current) fileInput.current.value = '';
       if (thumbnailInput.current) thumbnailInput.current.value = '';
     } catch (uploadError) {
-      setError(uploadError.message || 'Upload failed. Please try again.');
+      if (isAbort(uploadError)) {
+        setSuccess(`Upload paused. You can resume it until ${formatDate(upload.expiresAt)}, even after leaving this page.`);
+      } else if (uploadError.fatal) {
+        setError(uploadError.message);
+      } else {
+        setError(`${uploadError.message || 'Upload failed'}. Your progress is saved: press Resume to continue.`);
+      }
     } finally {
+      if (uploadAbort.current === controller) uploadAbort.current = null;
       setUploading(false);
+      refreshOpenUploads();
     }
+  }
+
+  function pauseUpload() {
+    uploadAbort.current?.abort();
+  }
+
+  function chooseFileToResume(upload) {
+    setError('');
+    setSuccess('');
+    setResumeTarget(upload);
+    if (resumeInput.current) {
+      resumeInput.current.value = '';
+      resumeInput.current.click();
+    }
+  }
+
+  async function resumeWithFile(event) {
+    const chosen = event.target.files?.[0];
+    const upload = resumeTarget;
+    setResumeTarget(null);
+    if (!chosen || !upload) return;
+    if (!isSameFile(chosen, upload)) {
+      setError(`That isn't the same file. Choose "${upload.fileName}" (${formatBytes(upload.fileSize)}), unchanged since you started uploading it.`);
+      return;
+    }
+    // Thumbnails aren't kept between visits, so take a frame from the video again
+    const generated = await readVideoMetadataAndThumbnail(chosen).then(result => result.thumbnail).catch(() => null);
+    await runUpload(upload, chosen, generated);
+  }
+
+  async function discardUpload(upload) {
+    if (!window.confirm(`Discard the unfinished upload "${upload.title}"? The parts uploaded so far will be deleted.`)) return;
+    setError('');
+    setSuccess('');
+    try {
+      await uploadsApi.discard(upload.uploadId);
+    } catch (discardError) {
+      setError(discardError.message);
+    }
+    refreshOpenUploads();
   }
 
   return (
@@ -228,8 +314,9 @@ export default function UploadVideoPage({ session, onCancel }) {
             {error && <p className="upload-error" role="alert">{error}</p>}
             {success && <p className="upload-success" role="status">{success}</p>}
             {uploading && <div className="upload-progress" role="status" aria-live="polite">
-              <div className="upload-progress-label"><span>Uploading video</span><span>{uploadProgress}%</span></div>
+              <div className="upload-progress-label"><span>Uploading {uploadingTitle ? `"${uploadingTitle}"` : 'video'}</span><span>{uploadProgress}%</span></div>
               <progress aria-label="Video upload progress" max="100" value={uploadProgress} />
+              <button type="button" className="upload-pause" onClick={pauseUpload}>Pause upload</button>
             </div>}
 
             <button className="upload-submit" type="submit" disabled={uploading || sessionLoading || !activeSession}>
@@ -237,6 +324,26 @@ export default function UploadVideoPage({ session, onCancel }) {
             </button>
           </form>
         )}
+        {!sessionLoading && activeSession && openUploads.length > 0 && <section className="upload-unfinished" aria-labelledby="unfinished-heading">
+          <h2 id="unfinished-heading">Unfinished uploads</h2>
+          <p className="upload-file-name">To continue one, choose the same video file again.</p>
+          <input ref={resumeInput} type="file" accept="video/*" hidden onChange={resumeWithFile} aria-label="Video file to resume" />
+          <ul>
+            {openUploads.map(upload => <li key={upload.uploadId}>
+              <div className="upload-unfinished-info">
+                <strong>{upload.title}</strong>
+                <span className="upload-file-name">
+                  {upload.fileName} · {Math.floor((upload.uploadedBytes / upload.fileSize) * 100)}% of {formatBytes(upload.fileSize)} · resume by {formatDate(upload.expiresAt)}
+                </span>
+                <progress aria-label={`${upload.title} upload progress`} max={upload.fileSize} value={upload.uploadedBytes} />
+              </div>
+              <div className="upload-unfinished-actions">
+                <button type="button" className="upload-submit" disabled={uploading} onClick={() => chooseFileToResume(upload)}>Resume</button>
+                <button type="button" className="edit-video-cancel" disabled={uploading} onClick={() => discardUpload(upload)}>Discard</button>
+              </div>
+            </li>)}
+          </ul>
+        </section>}
         {!sessionLoading && !activeSession && <button type="button" className="upload-back" onClick={onCancel}>Return home</button>}
       </div>
     </section>

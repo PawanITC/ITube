@@ -64,14 +64,13 @@ terraform plan -out tfplan
 terraform apply tfplan
 ```
 
-The first apply takes about 15-20 minutes. Check that the plan **imports** (not creates) the four resources in
-`imports.tf`. If one of them does not exist in the account, remove its block from `imports.tf`.
+The first apply takes about 15-20 minutes. The retained resources are declared in `imports.tf` and
+`rebuild-imports.tf`. Check that the plan imports these resources rather than replacing them.
 
 After the first successful apply:
 
-1. Delete `imports.tf` (the resources are now in the state).
-2. Delete the hand-made inline policy on `github-action-role` in the IAM console; Terraform's inline policy
-   `itube-deploy` replaces it.
+1. Keep the import blocks as provenance; they do nothing once the resources are in state.
+2. Keep the existing IAM policies. The `itube-deploy` inline policy is managed by this stack.
 3. Point kubectl at the cluster: run the `kubeconfig_command` output.
 4. Check that the GitHub variable `AWS_DEPLOY_ROLE_ARN` (environment `dev`) equals the `deploy_role_arn` output,
    then re-run the deploy workflow.
@@ -89,9 +88,11 @@ Renaming the deploy role replaces it, so update `AWS_DEPLOY_ROLE_ARN` in GitHub 
 
 ## State
 
-State is stored locally in `terraform.tfstate` (git-ignored). Losing it means Terraform no longer knows about the
-resources, so before more than one person runs this, move it to S3 with the commented `backend "s3"` block in
-[`versions.tf`](versions.tf).
+State is stored in `s3://itube-tfstate-160198385987/itube/eks-dev/terraform.tfstate`, with encryption,
+bucket versioning, and S3 lockfiles enabled. The state bucket is retained outside this stack.
+All teammates must use this backend from [`versions.tf`](versions.tf), and run `terraform init -reconfigure`
+when switching from the old local state. Do not migrate an incomplete old state over the shared state.
+The account-wide GitHub OIDC provider is read as a data source because it is shared with the bootstrap stack.
 
 ## Cost and teardown
 
@@ -102,8 +103,9 @@ EBS ~$14 (2 x 50Gi node disks + 45Gi of PVCs), S3 by usage (~$0.024/GB-month in 
 terraform destroy
 ```
 
-**This deletes the cluster, the Postgres, ScyllaDB and Kafka volumes and the media bucket
-(`media_bucket_force_destroy = true`), i.e. all ITube data.** Back up first:
+**This destroys the cluster and its infrastructure.** Delete application PVCs while the EBS CSI controller
+is still running to avoid orphaned EBS volumes. The media bucket defaults to `media_bucket_force_destroy = false`,
+so Terraform refuses to delete it while it contains objects. Back up first:
 `kubectl -n itube exec postgres-0 -- pg_dump -U itube itube > itube.sql` for Postgres and
 `kubectl -n itube exec scylla-0 -- nodetool snapshot itube_engagement` for ScyllaDB (then copy the snapshot out). It also deletes the deploy role and the
 ECR repositories with their images; ECR refuses to delete a repository that still has images, so empty them first.

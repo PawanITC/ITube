@@ -12,15 +12,14 @@ terraform {
     }
   }
 
-  # State is local by default. To share it (recommended once more than one person runs this),
-  # create an S3 bucket and uncomment:
-  # backend "s3" {
-  #   bucket       = "<your-state-bucket>"
-  #   key          = "itube/eks-dev/terraform.tfstate"
-  #   region       = "eu-west-2"
-  #   encrypt      = true
-  #   use_lockfile = true
-  # }
+  # Shared, versioned state for the November 2026 rebuild. Keep this bucket outside this stack.
+  backend "s3" {
+    bucket       = "itube-tfstate-160198385987"
+    key          = "itube/eks-dev/terraform.tfstate"
+    region       = "eu-west-2"
+    encrypt      = true
+    use_lockfile = true
+  }
 }
 
 provider "aws" {
