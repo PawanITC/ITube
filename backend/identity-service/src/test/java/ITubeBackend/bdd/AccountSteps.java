@@ -3,7 +3,8 @@ package ITubeBackend.bdd;
 import ITubeBackend.common.client.CatalogClient;
 import ITubeBackend.common.client.DownstreamUnavailableException;
 import ITubeBackend.dto.channel.ChannelDto;
-import ITubeBackend.security.CurrentUser;
+import ITubeBackend.security.AccessTokens;
+import ITubeBackend.security.SignedInUser;
 import ITubeBackend.service.account.AccountEvents;
 import io.cucumber.java.Before;
 import io.cucumber.java.en.Given;
@@ -12,7 +13,7 @@ import io.cucumber.java.en.When;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletResponse;
-import org.springframework.mock.web.MockHttpSession;
+import jakarta.servlet.http.Cookie;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import tools.jackson.databind.JsonNode;
@@ -44,6 +45,7 @@ public class AccountSteps {
     @Autowired private ObjectMapper json;
     @Autowired private CatalogClient catalog;
     @Autowired private AccountEvents accountEvents;
+    @Autowired private AccessTokens tokens;
 
     private final String run = UUID.randomUUID().toString().substring(0, 8);
     private MvcResult last;
@@ -98,13 +100,15 @@ public class AccountSteps {
         assertThat(body().get("channelId").isNumber()).isTrue();
     }
 
-    @Then("the session holds the user's id, channel and display name {string}")
-    public void sessionHolds(String displayName) throws Exception {
-        MockHttpSession session = (MockHttpSession) last.getRequest().getSession(false);
-        assertThat(session).isNotNull();
-        assertThat(session.getAttribute(CurrentUser.USER_ID)).isEqualTo(body().get("userId").asLong());
-        assertThat(session.getAttribute(CurrentUser.CHANNEL_ID)).isEqualTo(body().get("channelId").asLong());
-        assertThat(session.getAttribute(CurrentUser.DISPLAY_NAME)).isEqualTo(displayName);
+    @Then("the access token holds the user's id, channel and display name {string}")
+    public void accessTokenHolds(String displayName) throws Exception {
+        Cookie cookie = last.getResponse().getCookie(AccessTokens.COOKIE);
+        assertThat(cookie).isNotNull();
+        assertThat(cookie.isHttpOnly()).isTrue();
+        SignedInUser user = tokens.verify(cookie.getValue()).orElseThrow();
+        assertThat(user.userId()).isEqualTo(body().get("userId").asLong());
+        assertThat(user.channelId()).isEqualTo(body().get("channelId").asLong());
+        assertThat(user.displayName()).isEqualTo(displayName);
     }
 
     @Then("the catalog was asked to create the channel {string}")

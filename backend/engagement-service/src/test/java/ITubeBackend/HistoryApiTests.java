@@ -10,7 +10,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.mock.web.MockHttpSession;
+import ITubeBackend.security.AccessTokens;
+import ITubeBackend.security.AuthenticationConfig;
+import ITubeBackend.security.SignedInUser;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -33,13 +36,15 @@ class HistoryApiTests {
     @Autowired private WatchHistoryStore repository;
     // catalog-service is another process; video details come from this in-memory stand-in
     @Autowired private FakeCatalog catalog;
+    @Autowired private AccessTokens tokens;
     private MockMvc mvc;
-    private MockHttpSession viewer;
-    private MockHttpSession other;
+    private RequestPostProcessor viewer;
+    private RequestPostProcessor other;
 
     @BeforeEach
     void setup() {
-        mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        mvc = MockMvcBuilders.standaloneSetup(controller)
+                .addFilters(new AuthenticationConfig.AuthenticationFilter(tokens)).build();
         // History is in the in-memory engagement store (ScyllaDB in production), not the rolled-back database
         ((InMemoryEngagementStores.Resettable) repository).reset();
         catalog.reset();
@@ -52,7 +57,7 @@ class HistoryApiTests {
         var fixture = video(VideoVisibility.PUBLIC, true);
         long videoId = fixture.video().getVideoId();
         add(viewer, videoId);
-        mvc.perform(get("/api/history").session(viewer)).andExpect(status().isOk())
+        mvc.perform(get("/api/history").with(viewer)).andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].videoId").value(videoId))
                 .andExpect(jsonPath("$[0].video.videoId").value(videoId))
                 .andExpect(jsonPath("$[0].video.title").value("A real watched video"))
@@ -60,7 +65,7 @@ class HistoryApiTests {
                 .andExpect(jsonPath("$[0].video.thumbnailUrl").value("/api/videos/" + videoId + "/thumbnail"));
         // In production the engagement service caches summaries for 30 s, so a change shows up within that
         fixture.video().setTitle("Updated title").setThumbnail(false);
-        mvc.perform(get("/api/history").session(viewer))
+        mvc.perform(get("/api/history").with(viewer))
                 .andExpect(jsonPath("$[0].video.title").value("Updated title"))
                 .andExpect(jsonPath("$[0].video.thumbnailUrl").isEmpty());
     }
@@ -70,11 +75,11 @@ class HistoryApiTests {
         var fixture = video(VideoVisibility.PRIVATE, true);
         add(viewer, fixture.video().getVideoId());
         add(viewer, Long.MAX_VALUE);
-        mvc.perform(get("/api/history").session(viewer)).andExpect(jsonPath("$.length()").value(2))
+        mvc.perform(get("/api/history").with(viewer)).andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].video").isEmpty()).andExpect(jsonPath("$[1].video").isEmpty());
         var owner = session(fixture.ownerId());
         add(owner, fixture.video().getVideoId());
-        mvc.perform(get("/api/history").session(owner))
+        mvc.perform(get("/api/history").with(owner))
                 .andExpect(jsonPath("$[0].video.title").value("A real watched video"))
                 .andExpect(jsonPath("$[0].video.videoUrl").isEmpty());
     }
@@ -85,7 +90,7 @@ class HistoryApiTests {
         var members = video(VideoVisibility.MEMBERS_ONLY, true);
         add(viewer, unlisted.video().getVideoId());
         add(viewer, members.video().getVideoId());
-        mvc.perform(get("/api/history").session(viewer))
+        mvc.perform(get("/api/history").with(viewer))
                 .andExpect(jsonPath("$[0].video.visibility").value("MEMBERS_ONLY"))
                 .andExpect(jsonPath("$[0].video.videoUrl").isEmpty())
                 .andExpect(jsonPath("$[1].video.visibility").value("UNLISTED"))
@@ -95,13 +100,13 @@ class HistoryApiTests {
     @Test
     void savedHistoryUsesSessionIdentityAndIsReturnedOnlyForItsUser() throws Exception {
         // A supplied userId cannot redirect writes or reads to someone else's history.
-        mvc.perform(post("/api/history?userId=902").session(viewer)
+        mvc.perform(post("/api/history?userId=902").with(viewer)
                 .contentType("application/json").content("{\"videoId\":25}"))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.videoId").value(25))
                 .andExpect(jsonPath("$.id").isString()).andExpect(jsonPath("$.watchedAt").isString());
-        mvc.perform(get("/api/history?userId=902").session(viewer))
+        mvc.perform(get("/api/history?userId=902").with(viewer))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
-        mvc.perform(get("/api/history?userId=901").session(other))
+        mvc.perform(get("/api/history?userId=901").with(other))
                 .andExpect(status().isOk()).andExpect(content().json("[]"));
         assertEquals(1, repository.page(901L, 0, 20).size());
     }
@@ -121,14 +126,14 @@ class HistoryApiTests {
         add(viewer, videoId);
         catalog.setDown(true);
         // Graceful degradation: the user's own history stays available, just without titles and thumbnails
-        mvc.perform(get("/api/history").session(viewer)).andExpect(status().isOk())
+        mvc.perform(get("/api/history").with(viewer)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].videoId").value(videoId))
                 .andExpect(jsonPath("$[0].video").isEmpty());
         // ...and recording a view still works
         add(viewer, videoId);
         catalog.setDown(false);
-        mvc.perform(get("/api/history").session(viewer))
+        mvc.perform(get("/api/history").with(viewer))
                 .andExpect(jsonPath("$[0].video.title").value("A real watched video"));
     }
 
@@ -138,44 +143,44 @@ class HistoryApiTests {
         Instant newer = Instant.parse("2026-01-02T10:00:00Z");
         var entries = List.of(repository.add(901L, 11L, newer), repository.add(901L, 12L, older),
                 repository.add(901L, 13L, newer));
-        mvc.perform(get("/api/history?page=0&size=2").session(viewer))
+        mvc.perform(get("/api/history?page=0&size=2").with(viewer))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].id").value(entries.get(2).id().toString()))
                 .andExpect(jsonPath("$[1].id").value(entries.get(0).id().toString()));
-        mvc.perform(get("/api/history?page=1&size=2").session(viewer))
+        mvc.perform(get("/api/history?page=1&size=2").with(viewer))
                 .andExpect(jsonPath("$.length()").value(1)).andExpect(jsonPath("$[0].videoId").value(12));
-        mvc.perform(get("/api/history?page=2&size=2").session(viewer)).andExpect(content().json("[]"));
+        mvc.perform(get("/api/history?page=2&size=2").with(viewer)).andExpect(content().json("[]"));
     }
 
     @Test
     void invalidInputDoesNotCreateRecords() throws Exception {
         for (String json : List.of("{}", "{\"videoId\":0}", "{\"videoId\":-1}", "{\"videoId\":null}", "{broken")) {
-            mvc.perform(post("/api/history").session(viewer).contentType("application/json").content(json))
+            mvc.perform(post("/api/history").with(viewer).contentType("application/json").content(json))
                     .andExpect(status().isBadRequest());
         }
         for (String query : List.of("page=-1", "size=0", "size=101", "page=abc")) {
-            mvc.perform(get("/api/history?" + query).session(viewer)).andExpect(status().isBadRequest());
+            mvc.perform(get("/api/history?" + query).with(viewer)).andExpect(status().isBadRequest());
         }
-        mvc.perform(delete("/api/history/0").session(viewer)).andExpect(status().isBadRequest());
-        mvc.perform(get("/api/history").session(viewer)).andExpect(content().json("[]"));
+        mvc.perform(delete("/api/history/0").with(viewer)).andExpect(status().isBadRequest());
+        mvc.perform(get("/api/history").with(viewer)).andExpect(content().json("[]"));
     }
 
     @Test
     void repeatWatchesCreateSeparateHistoryEntries() throws Exception {
         add(viewer, 25L);
         add(viewer, 25L);
-        mvc.perform(get("/api/history").session(viewer)).andExpect(jsonPath("$.length()").value(2));
+        mvc.perform(get("/api/history").with(viewer)).andExpect(jsonPath("$.length()").value(2));
     }
 
     @Test
     void deletionChecksOwnerAndRemovesOnlyTheSelectedEntry() throws Exception {
         String id = add(viewer, 25L);
         add(viewer, 26L);
-        mvc.perform(delete("/api/history/" + id + "?userId=901").session(other)).andExpect(status().isNotFound());
-        mvc.perform(delete("/api/history/" + id).session(viewer)).andExpect(status().isNoContent());
-        mvc.perform(get("/api/history").session(viewer))
+        mvc.perform(delete("/api/history/" + id + "?userId=901").with(other)).andExpect(status().isNotFound());
+        mvc.perform(delete("/api/history/" + id).with(viewer)).andExpect(status().isNoContent());
+        mvc.perform(get("/api/history").with(viewer))
                 .andExpect(jsonPath("$.length()").value(1)).andExpect(jsonPath("$[0].videoId").value(26));
-        mvc.perform(delete("/api/history/" + id).session(viewer)).andExpect(status().isNotFound());
+        mvc.perform(delete("/api/history/" + id).with(viewer)).andExpect(status().isNotFound());
     }
 
     @Test
@@ -183,23 +188,26 @@ class HistoryApiTests {
         add(viewer, 25L);
         add(viewer, 26L);
         add(other, 27L);
-        mvc.perform(delete("/api/history?userId=902").session(viewer)).andExpect(status().isNoContent());
-        mvc.perform(get("/api/history").session(viewer)).andExpect(content().json("[]"));
-        mvc.perform(get("/api/history").session(other)).andExpect(jsonPath("$.length()").value(1));
-        mvc.perform(delete("/api/history").session(viewer)).andExpect(status().isNoContent());
+        mvc.perform(delete("/api/history?userId=902").with(viewer)).andExpect(status().isNoContent());
+        mvc.perform(get("/api/history").with(viewer)).andExpect(content().json("[]"));
+        mvc.perform(get("/api/history").with(other)).andExpect(jsonPath("$.length()").value(1));
+        mvc.perform(delete("/api/history").with(viewer)).andExpect(status().isNoContent());
     }
 
-    private String add(MockHttpSession session, Long videoId) throws Exception {
-        String body = mvc.perform(post("/api/history").session(session).contentType("application/json")
+    private String add(RequestPostProcessor session, Long videoId) throws Exception {
+        String body = mvc.perform(post("/api/history").with(session).contentType("application/json")
                 .content("{\"videoId\":" + videoId + "}"))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         return new ObjectMapper().readTree(body).get("id").asString();
     }
 
-    private MockHttpSession session(Long userId) {
-        MockHttpSession session = new MockHttpSession();
-        session.setAttribute("userId", userId);
-        return session;
+    /** Requests signed in as this user (a real access token, verified by the authentication filter). */
+    private RequestPostProcessor session(Long userId) {
+        String token = tokens.issue(new SignedInUser(userId, null, null));
+        return request -> {
+            request.addHeader("Authorization", "Bearer " + token);
+            return request;
+        };
     }
 
     private record HistoryVideoFixture(FakeCatalog.Video video, Long ownerId) {}

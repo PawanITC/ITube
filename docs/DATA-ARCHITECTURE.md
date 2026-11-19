@@ -12,7 +12,8 @@ No database query or foreign key crosses from one domain to another. Domains ref
 | **engagement** | engagement-service | ScyllaDB keyspace `itube_engagement` | watch history, likes, comments | Add nodes: every read is one partition, writes spread by user/video id |
 | **media** | catalog-service (writes), transcode-worker (renditions) | Object storage (S3; SeaweedFS locally) | video sources, 360p/720p renditions, thumbnails | Effectively unlimited; served by pre-signed URL or the Cloudflare CDN ([CDN-AND-DNS.md](CDN-AND-DNS.md)) |
 
-Sessions (shared by all services) and payment rate limits stay in Redis. Kafka carries small events only (ids and
+Payment rate limits stay in Redis. Who is signed in travels in a signed access token, not a server-side session
+([AUTH.md](AUTH.md)); refresh tokens are in the `identity` schema. Kafka carries small events only (ids and
 storage keys).
 
 Locally (and in the dev cluster) identity, payments and catalog shard 0 share one PostgreSQL server as separate
@@ -44,7 +45,7 @@ Each service creates and upgrades its own schema on start (idempotent scripts):
   video summaries in one batched call (`POST /internal/videos/summaries`), cached per video for 30 s. Videos that are
   gone or private are skipped (likes) or shown without details (history). If the catalog is down, History still
   loads, without details.
-- **Comments:** the author's display name is stored with the comment. It comes from the session (put there at
+- **Comments:** the author's display name is stored with the comment. It comes from the access token (put there at
   sign-in), so posting a comment doesn't call identity-service.
 - **Members-only playback:** catalog-service asks payments-service (`POST /internal/entitlements/decide`) only for
   members-only videos; "allowed" answers are cached for 20 s. Public videos never involve payments.

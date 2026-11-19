@@ -6,7 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 
 /**
  * engagement-service: watch history, likes and comments. Owns the ScyllaDB keyspace itube_engagement.
- * Video details come from catalog-service (cached); the user and their display name come from the shared session.
+ * Video details come from catalog-service (cached); the user and their display name come from the access token (JWT).
  */
 @SpringBootApplication
 @ConfigurationPropertiesScan

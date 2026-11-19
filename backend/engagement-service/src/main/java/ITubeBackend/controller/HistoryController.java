@@ -2,7 +2,6 @@ package ITubeBackend.controller;
 
 import ITubeBackend.dto.history.HistoryResponse;
 import ITubeBackend.security.CurrentUser;
-import jakarta.servlet.http.HttpSession;
 import ITubeBackend.service.history.HistoryService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import ITubeBackend.dto.history.HistoryRequest;
@@ -23,8 +22,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-// Identity comes from the session. Entry ids are UUIDs; they are parsed after the session check so a
-// request without a session gets 401 whatever the id looks like.
+// Identity comes from the access token. Entry ids are UUIDs; they are parsed after the sign-in check so a
+// request without a token gets 401 whatever the id looks like.
 @Tag(name = "History", description = "Watch history for the signed-in user")
 @RestController
 @RequestMapping("/api/history")
@@ -37,17 +36,15 @@ public class HistoryController {
     }
 
     @DeleteMapping
-    public ResponseEntity<Void> clearHistory(
-            HttpSession session) {
-        historyService.clearHistory(CurrentUser.require(session));
+    public ResponseEntity<Void> clearHistory() {
+        historyService.clearHistory(CurrentUser.require());
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteHistory(
-            @PathVariable("id") String id,
-            HttpSession session) {
-        boolean deleted = historyService.deleteHistory(id, CurrentUser.require(session));
+            @PathVariable("id") String id) {
+        boolean deleted = historyService.deleteHistory(id, CurrentUser.require());
 
         if (deleted) {
             return ResponseEntity.noContent().build();
@@ -58,17 +55,15 @@ public class HistoryController {
 
     @GetMapping
     public List<HistoryResponse> getHistory(
-            HttpSession session,
             @RequestParam(value = "page", defaultValue = "0") @Min(0) int page,
             @RequestParam(value = "size", defaultValue = "20") @Min(1) @Max(100) int size) {
-        return historyService.getHistory(CurrentUser.require(session), page, size);
+        return historyService.getHistory(CurrentUser.require(), page, size);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public HistoryResponse addHistory(
-            HttpSession session,
             @Valid @RequestBody HistoryRequest request) {
-        return historyService.addHistory(CurrentUser.require(session), request.videoId());
+        return historyService.addHistory(CurrentUser.require(), request.videoId());
     }
 }

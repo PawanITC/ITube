@@ -9,7 +9,7 @@
 	</parent>
 	<artifactId>itube-common</artifactId>
 	<name>itube-common</name>
-	<description>Shared library: session user, resilient inter-service clients, Caffeine caches, Kafka retry and dead-letter handling</description>
+	<description>Shared library: signed-in user (JWT), resilient inter-service clients, Caffeine caches, Kafka retry and dead-letter handling</description>
 	<dependencies>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -67,6 +67,11 @@
 		<dependency>
 			<groupId>io.github.resilience4j</groupId>
 			<artifactId>resilience4j-micrometer</artifactId>
+		</dependency>
+		<!-- Signs and verifies the ITube access token (JWT) and reads JWKS (ITubeBackend.security) -->
+		<dependency>
+			<groupId>com.nimbusds</groupId>
+			<artifactId>nimbus-jose-jwt</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

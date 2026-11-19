@@ -1,50 +1,58 @@
 package ITubeBackend.security;
 
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpSession;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Optional;
 
 /**
- * Reads the signed-in user from the server-side session. Endpoints must use this instead of trusting a user id
- * sent by the client.
+ * The signed-in user of the current request. Endpoints must use this instead of trusting a user id sent by the
+ * client.
  * <p>
- * The session lives in Redis and is shared by every service (same SESSION cookie), so identity-service signs the
- * user in and catalog/engagement/payments read the same attributes without calling identity. The display name is
- * stored too, so e.g. posting a comment needs no call to identity-service at all.
+ * The user comes from the ITube access token (a signed JWT, see {@link AccessTokens}), verified by
+ * {@link AuthenticationConfig.AuthenticationFilter} in every service. Nothing is looked up: no Redis, no call to
+ * identity-service. The display name is in the token too, so e.g. posting a comment needs no call to identity.
  */
 public final class CurrentUser {
-    public static final String USER_ID = "userId";
-    public static final String CHANNEL_ID = "channelId";
-    public static final String DISPLAY_NAME = "displayName";
+    /** Request attribute holding the {@link SignedInUser}. */
+    public static final String ATTRIBUTE = CurrentUser.class.getName();
 
     private CurrentUser() {
     }
 
-    public static Optional<Long> find(HttpSession session) {
-        return session != null && session.getAttribute(USER_ID) instanceof Long id ? Optional.of(id) : Optional.empty();
+    public static Optional<SignedInUser> user() {
+        RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
+        return attributes != null
+                && attributes.getAttribute(ATTRIBUTE, RequestAttributes.SCOPE_REQUEST) instanceof SignedInUser user
+                ? Optional.of(user) : Optional.empty();
     }
 
-    public static Long require(HttpSession session) {
-        return find(session).orElseThrow(() ->
-                new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Start a session first"));
+    public static Optional<SignedInUser> user(HttpServletRequest request) {
+        return request.getAttribute(ATTRIBUTE) instanceof SignedInUser user ? Optional.of(user) : Optional.empty();
     }
 
-    public static Optional<String> displayName(HttpSession session) {
-        return session != null && session.getAttribute(DISPLAY_NAME) instanceof String name && !name.isBlank()
-                ? Optional.of(name) : Optional.empty();
+    public static Optional<Long> find() {
+        return user().map(SignedInUser::userId);
     }
 
-    /** Starts a fresh session for the user (new id on sign-in, so a planted session id can't be reused). */
-    public static void signIn(HttpServletRequest request, Long userId, Long channelId, String displayName) {
-        HttpSession session = request.getSession(true);
-        request.changeSessionId();
-        session.setAttribute(USER_ID, userId);
-        if (channelId != null) session.setAttribute(CHANNEL_ID, channelId);
-        else session.removeAttribute(CHANNEL_ID);
-        if (displayName != null) session.setAttribute(DISPLAY_NAME, displayName);
-        else session.removeAttribute(DISPLAY_NAME);
+    public static Long require() {
+        return require("Sign in first");
+    }
+
+    /** The user id, or 401 with this message. */
+    public static Long require(String message) {
+        return find().orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, message));
+    }
+
+    /** The user's primary channel when the token was issued (it can be newer: see identity's refresh). */
+    public static Optional<Long> channelId() {
+        return user().map(SignedInUser::channelId);
+    }
+
+    public static Optional<String> displayName() {
+        return user().map(SignedInUser::displayName).filter(name -> !name.isBlank());
     }
 }

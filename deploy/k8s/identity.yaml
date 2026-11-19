@@ -100,7 +100,27 @@ spec:
           envFrom:
             - configMapRef:
                 name: itube-config
+            # Cognito sign-in settings, created by deploy/terraform (cognito.tf). Without it Cognito is off.
+            - configMapRef:
+                name: itube-cognito
+                optional: true
           env:
+            # RSA key that signs access tokens (docs/AUTH.md). Every replica needs the same key, so a missing one
+            # stops start-up instead of each pod making up its own.
+            - name: JWT_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: itube-secrets
+                  key: jwt-private-key
+            - name: JWT_REQUIRE_CONFIGURED_KEY
+              value: "true"
+            # Public key of the previous signing key, during a key rotation only
+            - name: JWT_PREVIOUS_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: itube-secrets
+                  key: jwt-previous-public-key
+                  optional: true
             - name: IDENTITY_DATABASE_URL
               value: jdbc:postgresql://postgres:5432/itube
             - name: DATABASE_USERNAME

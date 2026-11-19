@@ -3,7 +3,8 @@ package ITubeBackend.bdd;
 import ITubeBackend.common.client.CatalogClient;
 import ITubeBackend.common.client.DownstreamUnavailableException;
 import ITubeBackend.dto.channel.ChannelDto;
-import ITubeBackend.security.CurrentUser;
+import ITubeBackend.security.AccessTokens;
+import ITubeBackend.security.SignedInUser;
 import io.cucumber.java.Before;
 import io.cucumber.java.en.Given;
 import io.cucumber.java.en.Then;
@@ -11,7 +12,6 @@ import io.cucumber.java.en.When;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import tools.jackson.databind.JsonNode;
@@ -35,6 +35,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 public class EntitlementSteps {
     @Autowired private MockMvc mvc;
     @Autowired private ObjectMapper json;
+    @Autowired private AccessTokens tokens;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private CatalogClient catalog;
 
@@ -89,9 +90,8 @@ public class EntitlementSteps {
 
     @When("viewer {long} opens their memberships page")
     public void opensMembershipsPage(long viewer) throws Exception {
-        MockHttpSession session = new MockHttpSession();
-        session.setAttribute(CurrentUser.USER_ID, viewer);
-        last = mvc.perform(get("/api/memberships/me").session(session)).andReturn();
+        last = mvc.perform(get("/api/memberships/me")
+                .header("Authorization", "Bearer " + tokens.issue(new SignedInUser(viewer, null, null)))).andReturn();
     }
 
     @Then("the answer is {string}")

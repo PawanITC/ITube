@@ -27,7 +27,8 @@ test('register validates the form before calling the server', async () => {
   expect(screen.getByText('Enter a valid email address.')).toBeInTheDocument();
   expect(screen.getByText('Use at least 8 characters.')).toBeInTheDocument();
   expect(screen.getByText('Passwords don’t match.')).toBeInTheDocument();
-  expect(fetch).not.toHaveBeenCalled();
+  // Only the sign-in options were asked for, nothing was submitted
+  expect(fetch.mock.calls.every(([url]) => url === '/api/auth/providers')).toBe(true);
 });
 
 test('register sends the details and signs the user in', async () => {
@@ -41,8 +42,7 @@ test('register sends the details and signs the user in', async () => {
   type('Confirm password', 'correct horse');
   fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
   await waitFor(() => expect(onSignedIn).toHaveBeenCalledWith(user));
-  const [url, options] = fetch.mock.calls[0];
-  expect(url).toBe('/api/auth/register');
+  const [, options] = fetch.mock.calls.find(([url]) => url === '/api/auth/register');
   expect(JSON.parse(options.body)).toEqual({ firstname: 'Ada', lastname: 'Lovelace', email: 'ada@example.com', password: 'correct horse', channelName: null });
 });
 
@@ -79,4 +79,29 @@ test('signing in from the header and signing out again', async () => {
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Sign out' }));
   expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
   expect(fetch.mock.calls.some(([url, options]) => url === '/api/auth/logout' && options?.method === 'POST')).toBe(true);
+});
+
+test('offers Cognito sign-in when the server has it configured', async () => {
+  fetch.mockImplementation(async url => (url === '/api/auth/providers'
+    ? { ok: true, status: 200, json: async () => ({ password: true, cognito: true }) }
+    : { ok: false, status: 404, json: async () => ({}) }));
+  const assign = vi.fn();
+  vi.stubGlobal('location', { ...window.location, assign, search: '' });
+  render(<Auth mode="login" onSignedIn={vi.fn()} onSwitchMode={vi.fn()} onHome={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue with Cognito' }));
+  expect(assign).toHaveBeenCalledWith('/api/auth/oauth/cognito/authorize');
+});
+
+test('hides Cognito sign-in when it is not configured', async () => {
+  fetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ password: true, cognito: false }) });
+  render(<Auth mode="login" onSignedIn={vi.fn()} onSwitchMode={vi.fn()} onHome={vi.fn()} />);
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/auth/providers', expect.anything()));
+  expect(screen.queryByRole('button', { name: 'Continue with Cognito' })).not.toBeInTheDocument();
+});
+
+test('explains a failed Cognito sign-in', async () => {
+  fetch.mockResolvedValue({ ok: false, status: 404, json: async () => ({}) });
+  window.history.replaceState(null, '', '/login?error=cognito-unverified');
+  render(<Auth mode="login" onSignedIn={vi.fn()} onSwitchMode={vi.fn()} onHome={vi.fn()} />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('Verify your email address');
 });
