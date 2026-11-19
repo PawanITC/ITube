@@ -19,10 +19,6 @@
 			<groupId>org.apache.cassandra</groupId>
 			<artifactId>java-driver-core</artifactId>
 		</dependency>
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-session-data-redis</artifactId>
-		</dependency>
 		<!-- Only for the one-off copy of pre-split engagement tables from Postgres (itube.migration.legacy-data) -->
 		<dependency>
 			<groupId>org.springframework</groupId>

@@ -7,7 +7,6 @@ import ITubeBackend.dto.payments.MembershipCheckoutRequest;
 import ITubeBackend.dto.payments.PortalResponse;
 import ITubeBackend.security.CurrentUser;
 import ITubeBackend.service.payments.CheckoutService;
-import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,18 +26,17 @@ public class PaymentController {
     }
 
     @PostMapping("/checkout/channel-membership")
-    public CheckoutResponse startMembershipCheckout(@Valid @RequestBody MembershipCheckoutRequest request,
-                                                    HttpSession session) {
-        return checkoutService.startMembershipCheckout(CurrentUser.require(session), request.tierId());
+    public CheckoutResponse startMembershipCheckout(@Valid @RequestBody MembershipCheckoutRequest request) {
+        return checkoutService.startMembershipCheckout(CurrentUser.require(), request.tierId());
     }
 
     @GetMapping("/checkout/sessions/{checkoutSessionId}")
-    public CheckoutStatusDto getCheckoutStatus(@PathVariable String checkoutSessionId, HttpSession session) {
-        return checkoutService.getStatus(CurrentUser.require(session), checkoutSessionId);
+    public CheckoutStatusDto getCheckoutStatus(@PathVariable String checkoutSessionId) {
+        return checkoutService.getStatus(CurrentUser.require(), checkoutSessionId);
     }
 
     @PostMapping("/billing-portal")
-    public PortalResponse openBillingPortal(HttpSession session) {
-        return new PortalResponse(checkoutService.createBillingPortalUrl(CurrentUser.require(session)));
+    public PortalResponse openBillingPortal() {
+        return new PortalResponse(checkoutService.createBillingPortalUrl(CurrentUser.require()));
     }
 }

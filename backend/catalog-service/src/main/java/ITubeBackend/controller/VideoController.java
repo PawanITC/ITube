@@ -5,7 +5,6 @@ import ITubeBackend.dto.video.*;
 import ITubeBackend.entities.VideoVisibility;
 import ITubeBackend.security.CurrentUser;
 import ITubeBackend.service.video.VideoService;
-import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.CacheControl;
@@ -37,12 +36,9 @@ public class VideoController {
             @RequestParam("title") String title,
             @RequestParam("duration") @DateTimeFormat(iso = DateTimeFormat.ISO.TIME) LocalTime duration,
             @RequestParam(value = "visibility", defaultValue = "PUBLIC") VideoVisibility visibility,
-            @RequestParam(value = "requiredTierLevel", required = false) Integer requiredTierLevel,
-            HttpSession session) {
-        Object sessionChannelId = session.getAttribute("channelId");
-        if (!(sessionChannelId instanceof Long channelId)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Start a session before uploading");
-        }
+            @RequestParam(value = "requiredTierLevel", required = false) Integer requiredTierLevel) {
+        Long channelId = CurrentUser.channelId().orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sign in with a channel before uploading"));
         if (file.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A video file is required");
         }
@@ -69,13 +65,13 @@ public class VideoController {
 
     /** Videos on the signed-in user's channels, including unlisted and private ones. */
     @GetMapping("/api/videos/mine")
-    public List<VideoSummaryDto> listMyVideos(HttpSession session) {
-        return videoService.getVideosOwnedBy(CurrentUser.require(session));
+    public List<VideoSummaryDto> listMyVideos() {
+        return videoService.getVideosOwnedBy(CurrentUser.require());
     }
 
     @GetMapping("/api/videos/mine/{videoId}")
-    public VideoSummaryDto getMyVideo(@PathVariable Long videoId, HttpSession session) {
-        return videoService.getOwnedVideo(videoId, CurrentUser.require(session));
+    public VideoSummaryDto getMyVideo(@PathVariable Long videoId) {
+        return videoService.getOwnedVideo(videoId, CurrentUser.require());
     }
 
     @PutMapping(path = "/api/videos/{videoId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -84,9 +80,8 @@ public class VideoController {
             @RequestParam("title") String title,
             @RequestParam(value = "visibility", defaultValue = "PUBLIC") VideoVisibility visibility,
             @RequestParam(value = "requiredTierLevel", required = false) Integer requiredTierLevel,
-            @RequestParam(value = "thumbnail", required = false) MultipartFile thumbnail,
-            HttpSession session) {
-        Long userId = CurrentUser.require(session);
+            @RequestParam(value = "thumbnail", required = false) MultipartFile thumbnail) {
+        Long userId = CurrentUser.require();
         boolean hasThumbnail = thumbnail != null && !thumbnail.isEmpty();
         if (hasThumbnail && (thumbnail.getContentType() == null || !thumbnail.getContentType().startsWith("image/"))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The thumbnail must be an image");
@@ -96,8 +91,8 @@ public class VideoController {
     }
 
     @DeleteMapping("/api/videos/{videoId}")
-    public ResponseEntity<Void> deleteVideo(@PathVariable Long videoId, HttpSession session) {
-        videoService.deleteVideo(videoId, CurrentUser.require(session));
+    public ResponseEntity<Void> deleteVideo(@PathVariable Long videoId) {
+        videoService.deleteVideo(videoId, CurrentUser.require());
         return ResponseEntity.noContent().build();
     }
 
@@ -107,14 +102,13 @@ public class VideoController {
     }
 
     @GetMapping("/api/videos/{videoId}/playback-authorisation")
-    public PlaybackAuthorisationDto authorisePlayback(@PathVariable Long videoId, HttpSession session) {
-        return videoService.authorisePlayback(videoId, CurrentUser.find(session).orElse(null));
+    public PlaybackAuthorisationDto authorisePlayback(@PathVariable Long videoId) {
+        return videoService.authorisePlayback(videoId, CurrentUser.find().orElse(null));
     }
 
     @PatchMapping("/api/videos/{videoId}/visibility")
-    public ResponseEntity<Void> updateVisibility(@PathVariable Long videoId, @Valid @RequestBody UpdateVisibilityRequest request,
-                                                 HttpSession session) {
-        videoService.updateVisibility(videoId, CurrentUser.require(session), request.visibility(), request.requiredTierLevel());
+    public ResponseEntity<Void> updateVisibility(@PathVariable Long videoId, @Valid @RequestBody UpdateVisibilityRequest request) {
+        videoService.updateVisibility(videoId, CurrentUser.require(), request.visibility(), request.requiredTierLevel());
         return ResponseEntity.noContent().build();
     }
 

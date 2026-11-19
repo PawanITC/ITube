@@ -1,12 +1,12 @@
 Feature: Accounts and signing in
-  identity-service owns accounts. Signing in stores the user in a session shared (through Redis) by every ITube
-  service. Channels belong to catalog-service, so registration asks the catalog for the user's first channel - and
+  identity-service owns accounts. Signing in gives the browser a signed access token that every ITube service
+  verifies on its own. Channels belong to catalog-service, so registration asks the catalog for the user's first channel - and
   must still work when the catalog is down.
 
   Scenario: Registering signs the user in everywhere and creates their channel
     When "Ada" registers with the channel name "Ada's Lab"
     Then the registration succeeds
-    And the session holds the user's id, channel and display name "Ada Lovelace"
+    And the access token holds the user's id, channel and display name "Ada Lovelace"
     And the catalog was asked to create the channel "Ada's Lab"
 
   Scenario: An email address can only be registered once, whatever its capitals

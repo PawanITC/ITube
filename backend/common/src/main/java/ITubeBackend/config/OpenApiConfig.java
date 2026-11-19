@@ -24,8 +24,9 @@ public class OpenApiConfig {
                         the split into microservices.
 
                         **Signing in:** call `POST /api/auth/register` or `POST /api/auth/login` (identity-service) \
-                        with **Try it out**. The browser keeps the session cookie, which every service accepts, so \
-                        the other endpoints then run as that user. The user is always taken from the session, never \
+                        with **Try it out**. The browser keeps the access token cookie (a signed JWT), which every \
+                        service verifies, so the other endpoints then run as that user. API clients can send it as \
+                        `Authorization: Bearer <token>` instead. The user is always taken from the token, never \
                         from the request.
 
                         **Money** is in minor units (pence) with a lowercase currency, and prices always come \

@@ -8,7 +8,6 @@ import ITubeBackend.dto.subscribtions.SubscriptionStatusDto;
 import ITubeBackend.security.CurrentUser;
 import ITubeBackend.service.channel.ChannelService;
 import ITubeBackend.service.channel.SubscriptionService;
-import jakarta.servlet.http.HttpSession;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -18,7 +17,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -35,48 +33,36 @@ public class ChannelController {
     }
 
     @GetMapping("/search")
-    public List<ChannelSearchDto> searchChannels(@RequestParam(defaultValue = "") String q, HttpSession session) {
+    public List<ChannelSearchDto> searchChannels(@RequestParam(defaultValue = "") String q) {
         String query = q.trim();
         if (query.isEmpty()) return List.of();
-        Object userId = session.getAttribute("userId");
-        Long currentUserId = userId instanceof Long id ? id : null;
-        return channelService.search(query, currentUserId);
+        return channelService.search(query, CurrentUser.find().orElse(null));
     }
 
     @GetMapping("/subscriptions")
-    public List<ChannelDto> getSubscribedChannels(HttpSession session) {
-        return channelService.subscribedChannels(requireUserId(session));
+    public List<ChannelDto> getSubscribedChannels() {
+        return channelService.subscribedChannels(CurrentUser.require("Sign in before subscribing"));
     }
 
     /** The signed-in user's channels (moved here from the old dev-session controller: channels are catalog data). */
     @GetMapping("/mine")
-    public List<ChannelDto> getMyChannels(HttpSession session) {
-        return channelService.channelsOwnedBy(CurrentUser.require(session));
+    public List<ChannelDto> getMyChannels() {
+        return channelService.channelsOwnedBy(CurrentUser.require());
     }
 
     @GetMapping("/{channelId}")
-    public ChannelDetailsDto getChannel(@PathVariable Long channelId, HttpSession session) {
-        Object userId = session.getAttribute("userId");
-        Long currentUserId = userId instanceof Long id ? id : null;
-        return channelService.getChannelDetails(channelId, currentUserId);
+    public ChannelDetailsDto getChannel(@PathVariable Long channelId) {
+        return channelService.getChannelDetails(channelId, CurrentUser.find().orElse(null));
     }
 
     @PostMapping("/{channelId}/subscriptions")
     @ResponseStatus(HttpStatus.CREATED)
-    public SubscriptionStatusDto subscribe(@PathVariable Long channelId, HttpSession session) {
-        return subscriptionService.subscribe(requireUserId(session), channelId);
+    public SubscriptionStatusDto subscribe(@PathVariable Long channelId) {
+        return subscriptionService.subscribe(CurrentUser.require("Sign in before subscribing"), channelId);
     }
 
     @DeleteMapping("/{channelId}/subscriptions")
-    public SubscriptionStatusDto unsubscribe(@PathVariable Long channelId, HttpSession session) {
-        return subscriptionService.unsubscribe(requireUserId(session), channelId);
-    }
-
-    private Long requireUserId(HttpSession session) {
-        Object userId = session.getAttribute("userId");
-        if (!(userId instanceof Long id)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Start a session before subscribing");
-        }
-        return id;
+    public SubscriptionStatusDto unsubscribe(@PathVariable Long channelId) {
+        return subscriptionService.unsubscribe(CurrentUser.require("Sign in before subscribing"), channelId);
     }
 }

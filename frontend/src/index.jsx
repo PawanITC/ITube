@@ -3,6 +3,10 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
+import { installTokenRefresh } from './api/session';
+
+// Refresh the short-lived access token transparently when an API call answers 401
+installTokenRefresh();
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(

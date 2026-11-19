@@ -32,7 +32,7 @@ Callers decide what an outage means for the user ("fail open" or "fail closed"):
 | catalog-service | sign-in (without channel details), registration (channel created later via Kafka), History (without titles), recording views, unliking | browsing, playing, liking | identity + engagement BDD |
 | engagement-service | browsing, watching, uploading, subscribing | history, likes, comments | chaos test below |
 | payments-service | everything except members-only videos, which **fail closed** (503, never free) | members-only playback, memberships | catalog BDD |
-| identity-service | everyone already signed in (the session is in Redis) | new sign-ins | (design) |
+| identity-service | everyone already signed in, until their access token expires (≤ 15 min): services verify tokens with cached public keys | new sign-ins, token refresh | AccessTokensTest |
 | one catalog shard | the home feed and search (built from the other shards), everything on the other shards | that shard's creators' pages | (design; `itube.catalog.scatter.partial`) |
 | transcode-worker | everything; new videos stay PROCESSING and are transcoded when it's back | - | sweeper |
 | Kafka | everything users do synchronously; events are retried, transcodes re-sent by the sweeper | - | (design) |
@@ -163,8 +163,10 @@ numbers. Here is that estimate with stated assumptions; replace the per-pod figu
   another zone and 1-2 read replicas, keep each one small and fast. The id scheme supports up to 4,096 shards.
 - **ScyllaDB**: ~28,000 history writes/s at peak, ×3 for replication factor 3 ≈ 85,000 replicated writes/s. A cluster of
   6-9 nodes (8 vCPU each) across 3 zones handles that with room to spare; reads are single-partition.
-- **Sessions**: 100M users × ~1 KB is ~100 GB of Redis. Either a Redis cluster (sharded, e.g. 8 × 16 GB with replicas)
-  or move to signed tokens (JWT) so sign-in state needs no server memory at all ([MICROSERVICES.md](MICROSERVICES.md)).
+- **Sign-in state**: signed access tokens (JWT, [AUTH.md](AUTH.md)), so no request reads a session store. Only token
+  refreshes (one per active user every 15 minutes, ~110,000/s at 100M DAU if everyone were active at once, far
+  fewer in practice) touch identity's `refresh_tokens` table; that table can move to its own database or to
+  DynamoDB if it becomes the bottleneck.
 - **Kafka**: events are tiny (ids and keys). 3 brokers with replication factor 3; raise partitions on busy topics so
   more consumers can run in parallel.
 - **More than one region**: at this scale users are on every continent. Run the read path (gateway, catalog with read
@@ -183,4 +185,3 @@ Honest list, roughly in priority order:
 4. HLS/DASH segments instead of whole MP4 renditions, so players can switch quality and the CDN caches small pieces.
 5. Cursor pagination for history, likes and comments (offset paging gets slower with depth).
 6. Counters (views, likes, subscribers) aggregated through Kafka instead of `COUNT(*)`.
-7. JWT instead of server sessions.

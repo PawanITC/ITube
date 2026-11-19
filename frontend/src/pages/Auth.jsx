@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { login, register } from '../api/auth';
+import { cognitoErrorMessage, fetchSignInProviders, signInWithCognito } from '../api/session';
 import Icon from '../components/Icon';
 import './Auth.css';
 
@@ -27,9 +28,16 @@ const EMPTY_FORM = { firstname: '', lastname: '', email: '', password: '', confi
 export default function Auth({ mode, onSignedIn, onSwitchMode, onHome }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [errors, setErrors] = useState({});
-  const [serverError, setServerError] = useState('');
+  const [serverError, setServerError] = useState(() => cognitoErrorMessage());
   const [submitting, setSubmitting] = useState(false);
+  const [cognitoAvailable, setCognitoAvailable] = useState(false);
   const isRegister = mode === 'register';
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchSignInProviders().then(providers => { if (!cancelled) setCognitoAvailable(Boolean(providers?.cognito)); });
+    return () => { cancelled = true; };
+  }, []);
 
   function update(field) {
     return event => {
@@ -111,6 +119,15 @@ export default function Auth({ mode, onSignedIn, onSwitchMode, onHome }) {
             {submitting ? (isRegister ? 'Creating account…' : 'Signing in…') : (isRegister ? 'Create account' : 'Sign in')}
           </button>
         </form>
+
+        {cognitoAvailable && (
+          <>
+            <div className="auth-divider" role="separator"><span>or</span></div>
+            <button className="auth-provider" type="button" onClick={signInWithCognito}>
+              Continue with Cognito
+            </button>
+          </>
+        )}
 
         <p className="auth-switch">
           {isRegister ? 'Already have an account? ' : 'New to ITube? '}

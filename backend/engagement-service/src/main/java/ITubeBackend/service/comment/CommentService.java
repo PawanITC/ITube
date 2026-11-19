@@ -43,8 +43,8 @@ public class CommentService {
                 .toList();
     }
 
-    /** {@code sessionDisplayName} may be null for sessions created before names were stored in them. */
-    public CommentDto addComment(Long videoId, Long userId, String sessionDisplayName, CreateCommentRequest request) {
+    /** {@code tokenDisplayName} (from the access token) may be null; then the name is read from identity-service. */
+    public CommentDto addComment(Long videoId, Long userId, String tokenDisplayName, CreateCommentRequest request) {
         String content = request == null || request.content() == null ? "" : request.content().trim();
         if (content.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Comment cannot be empty");
@@ -53,9 +53,9 @@ public class CommentService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Comment must be 5000 characters or fewer");
         }
         requireVideo(videoId);
-        String authorName = sessionDisplayName != null ? sessionDisplayName
+        String authorName = tokenDisplayName != null ? tokenDisplayName
                 : identity.account(userId).map(user -> user.firstname() + " " + user.lastname())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Start a session before commenting"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sign in before commenting"));
         var saved = commentStore.add(videoId, userId, authorName, content, clock.instant());
         return new CommentDto(saved.id(), saved.content(), saved.createdAt().atOffset(ZoneOffset.UTC), authorName);
     }

@@ -5,7 +5,7 @@ kind: ConfigMap
 metadata:
   name: itube-config
 data:
-  # application properties hardcode localhost for Redis; env vars take precedence
+  # application properties hardcode localhost for Redis (payments-service rate limits); env vars take precedence
   SPRING_DATA_REDIS_HOST: redis
   SPRING_DATA_REDIS_PORT: "6379"
   KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -21,6 +21,8 @@ data:
   # Where the browser lands after Stripe Checkout. With Cloudflare: https://<app_hostname> (deploy/cloudflare)
   FRONTEND_BASE_URL: https://itube.fun
   API_DOCS_ENABLED: "true"
+  # Auth cookies only over HTTPS (Cloudflare). Browsers also accept Secure cookies on http://localhost (port-forward).
+  AUTH_COOKIE_SECURE: "true"
   # Public media through the Cloudflare CDN, e.g. https://media.itube.example.com (docs/CDN-AND-DNS.md).
   # Empty = no CDN: viewers get pre-signed S3 URLs.
   CDN_MEDIA_BASE_URL: ""

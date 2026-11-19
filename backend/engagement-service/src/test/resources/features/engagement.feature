@@ -1,6 +1,6 @@
 Feature: Watch history, likes and comments
   engagement-service keeps what viewers do (ScyllaDB in production, memory in tests). Video details come from
-  catalog-service, and the signed-in user and their name come from the shared session. A viewer's own data must stay
+  catalog-service, and the signed-in user and their name come from the access token. A viewer's own data must stay
   available even when the catalog isn't.
 
   Background:
@@ -35,7 +35,7 @@ Feature: Watch history, likes and comments
     When "Sam" unlikes "Rust in production"
     Then the request is answered with status 204
 
-  Scenario: Comments are signed with the name from the session
+  Scenario: Comments are signed with the name from the access token
     When "Sam" comments "Great talk" on "Rust in production"
     Then the comments on "Rust in production" show "Great talk" by "Sam"
     And identity-service was not asked who "Sam" is

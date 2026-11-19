@@ -75,7 +75,7 @@ public class ResumableUploadService {
     }
 
     public UploadSessionDto start(Long userId, Long channelId, StartUploadRequest request) {
-        // The channel comes from the session (one of the user's own), so it is on the user's shard
+        // The channel comes from the access token (one of the user's own), so it is on the user's shard
         if (channelId == null || shards.physicalOf(channelId).isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Channel not found");
         }

@@ -24,7 +24,8 @@ public class AccountEntity {
     @Column(nullable = false, unique = true, length = 320)
     private String email;
 
-    @Column(name = "password_hash", nullable = false, length = 255)
+    // Null for accounts that only sign in through Cognito
+    @Column(name = "password_hash", length = 255)
     private String passwordHash;
 
     public AccountEntity() {

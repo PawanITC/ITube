@@ -19,7 +19,8 @@ the EKS cluster `eks-lab-dev` (account `160198385987`, region `eu-west-2`), name
 1. Apply [deploy/terraform](terraform) again. It adds the ECR repositories for the new images, the metrics-server
    add-on (the HorizontalPodAutoscalers need it), S3 permissions for tagging and resumable uploads, and CORS on the
    media bucket.
-2. Set the new GitHub secret `ITUBE_INTERNAL_API_TOKEN` (below).
+2. Set the new GitHub secrets `ITUBE_INTERNAL_API_TOKEN` and `ITUBE_JWT_PRIVATE_KEY` (below). The deploy fails
+   without `ITUBE_JWT_PRIVATE_KEY`.
 3. Optional: Cloudflare ([cloudflare/README.md](cloudflare/README.md)).
 
 The workflow deletes the old single `backend` Deployment and Service. The data (Postgres, ScyllaDB, Kafka volumes)
@@ -44,7 +45,7 @@ objects (no Namespace, StorageClass, RBAC, Ingress or LoadBalancer).
 | `postgres-shard1` | StatefulSet | 1 | `postgres:17-alpine` | catalog shard 1; 10Gi `gp3` |
 | `scylla` | StatefulSet | 1 (developer mode) | `scylladb/scylla:6.2` | 20Gi `gp3` |
 | `kafka` | StatefulSet | 1 (KRaft) | `apache/kafka:4.0.0` | 5Gi `gp3` |
-| `redis` | Deployment | 1 | `redis:7-alpine` | sessions (lost on restart) |
+| `redis` | Deployment | 1 | `redis:7-alpine` | payment rate limits (lost on restart) |
 
 Every service:
 
@@ -114,6 +115,8 @@ on every internal call). When a collector is added, remove these variables and p
    |---|---|---|
    | `ITUBE_DB_PASSWORD` | yes | random password for the `itube` Postgres user (both Postgres servers) |
    | `ITUBE_PLAYBACK_SIGNING_KEY` | yes | 32+ random bytes, base64 |
+   | `ITUBE_JWT_PRIVATE_KEY` | yes | RSA key (PKCS#8 PEM) that signs access tokens ([docs/AUTH.md](../docs/AUTH.md)) |
+   | `ITUBE_JWT_PREVIOUS_PUBLIC_KEY` | no | only while rotating the signing key ([docs/AUTH.md](../docs/AUTH.md#rotating-the-signing-key)) |
    | `ITUBE_INTERNAL_API_TOKEN` | strongly recommended | random string; services require it on `/internal/**` calls to each other |
    | `ITUBE_STRIPE_SECRET_KEY` | no | Stripe **test** key (`rk_test_...`/`sk_test_...`); without it payments return 503 |
    | `ITUBE_STRIPE_WEBHOOK_SECRET` | no | `whsec_...` (webhooks need a public URL: Cloudflare) |
@@ -123,6 +126,7 @@ on every internal call). When a collector is added, remove these variables and p
    openssl rand -base64 32 | tr -d '\n' | gh secret set ITUBE_DB_PASSWORD --env dev --repo PawanITC/ITube
    openssl rand -base64 32 | tr -d '\n' | gh secret set ITUBE_PLAYBACK_SIGNING_KEY --env dev --repo PawanITC/ITube
    openssl rand -base64 32 | tr -d '\n' | gh secret set ITUBE_INTERNAL_API_TOKEN --env dev --repo PawanITC/ITube
+   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 | gh secret set ITUBE_JWT_PRIVATE_KEY --env dev --repo PawanITC/ITube
    # optional
    gh secret set ITUBE_STRIPE_SECRET_KEY --env dev --repo PawanITC/ITube      # prompts for the value
    gh secret set ITUBE_STRIPE_WEBHOOK_SECRET --env dev --repo PawanITC/ITube

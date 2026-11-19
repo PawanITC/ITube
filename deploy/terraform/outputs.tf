@@ -24,3 +24,18 @@ output "backend_storage_role_arn" {
   description = "IAM role the backend service account assumes (EKS Pod Identity) to reach the media bucket."
   value       = aws_iam_role.backend_storage.arn
 }
+
+output "cognito_user_pool_id" {
+  description = "COGNITO_USER_POOL_ID for identity-service (also in the ConfigMap itube-cognito)."
+  value       = aws_cognito_user_pool.itube.id
+}
+
+output "cognito_client_id" {
+  description = "COGNITO_CLIENT_ID for identity-service (public app client, PKCE)."
+  value       = aws_cognito_user_pool_client.web.id
+}
+
+output "cognito_domain" {
+  description = "COGNITO_DOMAIN for identity-service: the hosted login page."
+  value       = "https://${aws_cognito_user_pool_domain.itube.domain}.auth.${var.region}.amazoncognito.com"
+}
