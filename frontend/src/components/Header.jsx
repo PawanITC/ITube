@@ -7,11 +7,8 @@ function displayName(session) {
   return fullName || session.channelName || session.email || 'Your account';
 }
 
-export default function Header({ session, onSearch, onCreatePage, onSessionStarted, onSelectChannel, onOpenAuth, onSignOut }) {
+export default function Header({ session, onHome, onSearch, onCreatePage, onSelectChannel, onOpenAuth, onSignOut }) {
   const [query, setQuery] = useState('');
-  const [searchType, setSearchType] = useState('videos');
-  const [sessionError, setSessionError] = useState('');
-  const [startingSession, setStartingSession] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [channels, setChannels] = useState([]);
   const [loadingChannels, setLoadingChannels] = useState(false);
@@ -20,29 +17,14 @@ export default function Header({ session, onSearch, onCreatePage, onSessionStart
   const [createError, setCreateError] = useState('');
   function submit(event) {
     event.preventDefault();
-    onSearch(query, searchType);
+    onSearch(query);
   }
 
-// REMOVE LATER : UNTIL LOGIN IS COMPLETE
-  async function startDevSession(event) {
+  function goHome(event) {
     event.preventDefault();
-    // Never swap a real signed-in account for the shared dev account.
-    if (session) return;
-    setStartingSession(true);
-    setSessionError('');
-    try {
-      const response = await fetch('/api/session/dev', {
-        method: 'POST',
-        credentials: 'include',
-      });
-      if (!response.ok) throw new Error(`Session request failed (${response.status})`);
-      const newSession = await response.json();
-      onSessionStarted(newSession);
-    } catch (error) {
-      setSessionError('Could not start the dev session. Is the backend and database running?');
-    } finally {
-      setStartingSession(false);
-    }
+    setQuery('');
+    setProfileOpen(false);
+    onHome();
   }
 
   async function toggleProfileMenu() {
@@ -91,16 +73,12 @@ export default function Header({ session, onSearch, onCreatePage, onSessionStart
     <header className="topbar">
       <div className="brand-area">
         <button className="icon-button menu-button" aria-label="Menu"><Icon name="menu" /></button>
-        <a className="brand" href="#home" aria-label="ITube home" onClick={startDevSession} title={session ? `Signed in as ${session.email}` : 'Start dev session'}><span className="brand-mark"><Icon name="play" size={19} /></span><strong>ITube</strong></a>
+        <a className="brand" href="/" aria-label="ITube home" onClick={goHome} title="ITube home"><span className="brand-mark"><Icon name="play" size={19} /></span><strong>ITube</strong></a>
       </div>
       <div className="search-area">
         <form className="search-form" onSubmit={submit}>
-          <select value={searchType} onChange={event => setSearchType(event.target.value)} aria-label="Search for">
-            <option value="videos">Videos</option>
-            <option value="channels">Channels</option>
-          </select>
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder={`Search ${searchType}`} aria-label="Search" />
-          <button type="submit" aria-label={`Search ${searchType}`}><Icon name="search" /></button>
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search" aria-label="Search" />
+          <button type="submit" aria-label="Search"><Icon name="search" /></button>
         </form>
       </div>
       <div className="header-actions">
@@ -119,8 +97,8 @@ export default function Header({ session, onSearch, onCreatePage, onSessionStart
             onClick={toggleProfileMenu}
           >{displayName(session).charAt(0).toUpperCase()}</button>
         ) : (
-          <button className="sign-in-button" type="button" onClick={() => onOpenAuth('login')} title={sessionError || undefined} disabled={startingSession}>
-            <Icon name="user" size={18} /><span>{startingSession ? 'Starting…' : 'Sign in'}</span>
+          <button className="sign-in-button" type="button" onClick={() => onOpenAuth('login')}>
+            <Icon name="user" size={18} /><span>Sign in</span>
           </button>
         )}
         {session && profileOpen && (
