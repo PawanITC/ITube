@@ -37,7 +37,7 @@ function Section({ number, title, children }) {
   );
 }
 
-export default function Demo({ onHome }) {
+export default function Demo() {
   const [identity, setIdentity] = useState({ loading: true });
   const [demoChannel, setDemoChannel] = useState(null);
   const [tiers, setTiers] = useState([]);
@@ -123,7 +123,6 @@ export default function Demo({ onHome }) {
 
   return (
     <main className="demo-page">
-      <button type="button" className="watch-back" onClick={onHome}>‹ Back to videos</button>
       <header className="demo-heading">
         <p className="history-eyebrow">DEVELOPMENT ONLY</p>
         <h1>Feature showcase</h1>

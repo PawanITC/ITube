@@ -7,7 +7,7 @@ function formatSubscriberCount(count) {
   return `${count} ${count === 1 ? 'subscriber' : 'subscribers'}`;
 }
 
-export default function ChannelPage({ channelId, onHome, onSelectVideo, onSelectChannel, onOpenMemberships }) {
+export default function ChannelPage({ channelId, onSelectVideo, onSelectChannel, onOpenMemberships }) {
   const checkoutCancelled = new URLSearchParams(window.location.search).get('checkout') === 'cancelled';
   const [channel, setChannel] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -55,7 +55,6 @@ export default function ChannelPage({ channelId, onHome, onSelectVideo, onSelect
 
   return (
     <main className="channel-page">
-      <button type="button" className="watch-back" onClick={onHome}>‹ Back to videos</button>
       {loading ? <p className="channel-page-message">Loading channel…</p> : error ? <p className="channel-page-message" role="alert">{error}</p> : channel && (
         <>
           <header className="channel-banner">

@@ -35,7 +35,7 @@ function formatPlayerTime(value) {
     : `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
-export default function WatchPage({ videoId, videos, videosLoading, videosError, session, onSelectVideo, onSelectChannel, onHome, onOpenMemberships }) {
+export default function WatchPage({ videoId, videos, videosLoading, videosError, session, onSelectVideo, onSelectChannel, onOpenMemberships }) {
   const [playback, setPlayback] = useState(null);
   const [playbackError, setPlaybackError] = useState('');
   const [comments, setComments] = useState([]);
@@ -255,7 +255,6 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
 
   return (
     <main className="watch-main">
-      <button type="button" className="watch-back" onClick={onHome}>‹ Back to videos</button>
       {videosLoading ? <p className="watch-message">Loading video…</p> : videosError ? <p className="watch-message" role="alert">{videosError}</p> : !video ? <p className="watch-message">Video not found.</p> : (
         <div className={`watch-layout${theaterMode ? ' is-theater' : ''}`}>
           <section className="watch-primary">

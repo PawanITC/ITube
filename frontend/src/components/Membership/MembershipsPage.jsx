@@ -64,7 +64,7 @@ function MembershipRow({ membership, onChanged, onOpenChannel }) {
   );
 }
 
-export default function MembershipsPage({ onHome, onOpenChannel }) {
+export default function MembershipsPage({ onOpenChannel }) {
   const [memberships, setMemberships] = useState(null);
   const [error, setError] = useState('');
   const [portalError, setPortalError] = useState('');
@@ -89,7 +89,6 @@ export default function MembershipsPage({ onHome, onOpenChannel }) {
 
   return (
     <main className="memberships-page">
-      <button type="button" className="watch-back" onClick={onHome}>‹ Back to videos</button>
       <header className="memberships-header">
         <div><h1>Memberships</h1><p>Paid channel memberships. Free subscriptions are listed in the sidebar.</p></div>
         {memberships?.length > 0 && <button type="button" className="subscribe-button" onClick={openPortal}>Manage billing</button>}
