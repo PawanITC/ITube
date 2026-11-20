@@ -6,6 +6,7 @@ import ITubeBackend.dto.video.ResumableUploadDtos.PartUrlDto;
 import ITubeBackend.dto.video.ResumableUploadDtos.StartUploadRequest;
 import ITubeBackend.dto.video.ResumableUploadDtos.UploadSessionDto;
 import ITubeBackend.entities.UploadSessionEntity;
+import ITubeBackend.entities.VideoType;
 import ITubeBackend.entities.VideoVisibility;
 import ITubeBackend.repository.UploadSessionRepository;
 import ITubeBackend.service.video.ResumableUploadService;
@@ -88,7 +89,7 @@ class ResumableUploadTest {
                         .toList());
         when(sessions.findByExpiresAtBefore(any(), any())).thenAnswer(call -> rows.values().stream()
                 .filter(row -> row.getExpiresAt().isBefore(call.getArgument(0))).toList());
-        when(videos.validateDetails(any(), any(), any(), any(), any())).thenReturn(VideoVisibility.PUBLIC);
+        when(videos.validateDetails(any(), any(), any(), any(), any(), any())).thenReturn(VideoVisibility.PUBLIC);
         when(videos.saveUploadedVideo(any(), any(), any())).thenAnswer(call -> {
             call.<Runnable>getArgument(2).run();
             return 42L;
@@ -163,6 +164,28 @@ class ResumableUploadTest {
         assertThat(storage.readRange(key.getValue(), 0, file.length)).isEqualTo(file);
         assertThat(rows).isEmpty();
         assertThat(uploads.listOpen(USER)).isEmpty();
+    }
+
+    @Test
+    void theVideoTypeAndAdsChoiceCarryThroughToThePostedVideo() {
+        byte[] file = file(10);
+        UploadSessionDto normal = uploads.start(USER, CHANNEL, new StartUploadRequest("long.mp4", file.length, 1L,
+                "video/mp4", "Long", LocalTime.of(0, 5), VideoVisibility.PUBLIC, null, VideoType.VIDEO, true, null));
+        // An ad never shows ads itself, whatever the request says
+        UploadSessionDto ad = uploads.start(USER, CHANNEL, new StartUploadRequest("ad.mp4", file.length, 2L,
+                "video/mp4", "Ad", LocalTime.of(0, 0, 30), VideoVisibility.PUBLIC, null, VideoType.AD, true, null));
+        assertThat(normal.videoType()).isEqualTo(VideoType.VIDEO);
+        assertThat(normal.adsEnabled()).isTrue();
+        assertThat(ad.videoType()).isEqualTo(VideoType.AD);
+        assertThat(ad.adsEnabled()).isFalse();
+        verify(videos).validateDetails(any(), any(), any(), any(), any(), org.mockito.ArgumentMatchers.eq(VideoType.AD));
+
+        uploads.uploadPart(ad.uploadId(), USER, 1, new ByteArrayInputStream(file), file.length);
+        uploads.complete(ad.uploadId(), USER, null);
+        ArgumentCaptor<CreateVideo> video = ArgumentCaptor.forClass(CreateVideo.class);
+        verify(videos).saveUploadedVideo(video.capture(), any(), any());
+        assertThat(video.getValue().videoType()).isEqualTo(VideoType.AD);
+        assertThat(video.getValue().adsEnabled()).isFalse();
     }
 
     @Test

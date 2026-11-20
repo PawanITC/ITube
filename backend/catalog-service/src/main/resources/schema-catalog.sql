@@ -113,6 +113,18 @@ ALTER TABLE catalog.video ADD COLUMN IF NOT EXISTS transcode_attempts INT NOT NU
 ALTER TABLE catalog.video ADD COLUMN IF NOT EXISTS transcode_requested_at TIMESTAMP WITH TIME ZONE;
 CREATE INDEX IF NOT EXISTS ix_video_processing ON catalog.video (processing_status, transcode_requested_at);
 
+-- Ads: an upload is either a normal VIDEO or an AD (at most one minute, checked by VideoService). Normal videos
+-- choose whether ads may play in them. Videos and unfinished uploads from before this default to no ads.
+ALTER TABLE catalog.video ADD COLUMN IF NOT EXISTS video_type VARCHAR(10) NOT NULL DEFAULT 'VIDEO'
+    CHECK (video_type IN ('VIDEO', 'AD'));
+ALTER TABLE catalog.video ADD COLUMN IF NOT EXISTS ads_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE catalog.upload_session ADD COLUMN IF NOT EXISTS video_type VARCHAR(10) NOT NULL DEFAULT 'VIDEO'
+    CHECK (video_type IN ('VIDEO', 'AD'));
+ALTER TABLE catalog.upload_session ADD COLUMN IF NOT EXISTS ads_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+-- How many ads play in a video with ads enabled (spread evenly through it): at most one per 10 minutes of video
+ALTER TABLE catalog.video ADD COLUMN IF NOT EXISTS ad_count INT NOT NULL DEFAULT 1;
+ALTER TABLE catalog.upload_session ADD COLUMN IF NOT EXISTS ad_count INT NOT NULL DEFAULT 1;
+
 -- Shard directory: which logical shard each creator lives on. Only used on physical shard 0 (OwnerDirectory);
 -- created everywhere so every catalog database has the same schema.
 CREATE TABLE IF NOT EXISTS catalog.owner_shard (

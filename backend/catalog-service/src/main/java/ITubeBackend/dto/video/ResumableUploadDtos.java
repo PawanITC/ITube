@@ -1,5 +1,6 @@
 package ITubeBackend.dto.video;
 
+import ITubeBackend.entities.VideoType;
 import ITubeBackend.entities.VideoVisibility;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
@@ -29,7 +30,18 @@ public final class ResumableUploadDtos {
             @NotBlank String title,
             @NotNull LocalTime duration,
             VideoVisibility visibility,
-            Integer requiredTierLevel) {
+            Integer requiredTierLevel,
+            VideoType videoType,
+            Boolean adsEnabled,
+            /** How many ads, spread evenly; at most one per 10 minutes of video. Null means one. */
+            Integer adCount) {
+
+        /** A normal video without ads. */
+        public StartUploadRequest(String fileName, long fileSize, long lastModified, String contentType, String title,
+                                  LocalTime duration, VideoVisibility visibility, Integer requiredTierLevel) {
+            this(fileName, fileSize, lastModified, contentType, title, duration, visibility, requiredTierLevel,
+                    VideoType.VIDEO, false, null);
+        }
     }
 
     /**
@@ -50,6 +62,9 @@ public final class ResumableUploadDtos {
             LocalTime duration,
             VideoVisibility visibility,
             Integer requiredTierLevel,
+            VideoType videoType,
+            boolean adsEnabled,
+            int adCount,
             OffsetDateTime createdAt,
             OffsetDateTime expiresAt) {
     }
