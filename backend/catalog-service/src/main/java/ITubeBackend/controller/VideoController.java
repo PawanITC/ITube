@@ -111,6 +111,13 @@ public class VideoController {
         return videoService.authorisePlayback(videoId, CurrentUser.find(session).orElse(null));
     }
 
+    /** The ads to play during this video (by default one at the midpoint); empty if it has none. Chosen per view. */
+    @GetMapping("/api/videos/{videoId}/ad-breaks")
+    public ResponseEntity<List<AdBreakDto>> adBreaks(@PathVariable Long videoId, HttpSession session) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(videoService.adBreaks(videoId, CurrentUser.find(session).orElse(null)));
+    }
+
     @PatchMapping("/api/videos/{videoId}/visibility")
     public ResponseEntity<Void> updateVisibility(@PathVariable Long videoId, @Valid @RequestBody UpdateVisibilityRequest request,
                                                  HttpSession session) {

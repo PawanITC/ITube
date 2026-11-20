@@ -11,6 +11,13 @@ const LOCKED_MESSAGES = {
   HIGHER_TIER_REQUIRED: 'This video is for members on a higher tier. Upgrade your membership to watch it.',
 };
 
+/** Ads only play in videos longer than this (the server checks it too). */
+const MIN_VIDEO_SECONDS_FOR_ADS = 60;
+/** Ads longer than this can be skipped... */
+const SKIPPABLE_AD_SECONDS = 10;
+/** ...once this much of them has played. */
+const SKIP_AFTER_SECONDS = 5;
+
 async function fetchPlayback(videoId) {
   // The server checks entitlement and returns a short-lived token for members-only videos
   const response = await fetch(`/api/videos/${videoId}/playback-authorisation`, { credentials: 'include' });
@@ -61,6 +68,17 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
   const playbackRef = useRef(null);
   const lastTokenRefreshRef = useRef(0);
   const historyAttempt = useRef(null);
+  // Ads: the server says where ads go (by default one at the midpoint). Each plays once per visit: when playback
+  // reaches it, by watching or by seeking past it. Played ones lose their marker on the seek bar.
+  const [adBreaks, setAdBreaks] = useState([]);
+  const [playedBreaks, setPlayedBreaks] = useState(() => new Set());
+  const [activeAd, setActiveAd] = useState(null);
+  const [adRemaining, setAdRemaining] = useState(0);
+  const [adElapsed, setAdElapsed] = useState(0);
+  const [adPlaying, setAdPlaying] = useState(false);
+  const [adMuted, setAdMuted] = useState(false);
+  const playedBreaksRef = useRef(new Set());
+  const adRef = useRef(null);
   const [processingStatus, setProcessingStatus] = useState('PROCESSING');
   const video = useMemo(() => videos.find(item => item.videoId === videoId), [videos, videoId]);
   const recommendations = useMemo(() => videos.filter(item => item.videoId !== videoId), [videos, videoId]);
@@ -125,6 +143,85 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
       .catch(error => { if (!cancelled) setPlaybackError(error.message); });
     return () => { cancelled = true; };
   }, [videoId, session]);
+
+  const playbackAllowed = Boolean(playback?.allowed) && playback?.videoId === videoId;
+  useEffect(() => {
+    // Only a different video resets which ads were played (not a new token or session for the same one)
+    playedBreaksRef.current = new Set();
+    setPlayedBreaks(new Set());
+  }, [videoId]);
+
+  useEffect(() => {
+    setAdBreaks([]);
+    setActiveAd(null);
+    if (!playbackAllowed) return undefined;
+    let cancelled = false;
+    fetch(`/api/videos/${videoId}/ad-breaks`, { credentials: 'include' })
+      .then(response => (response.ok ? response.json() : []))
+      .then(result => { if (!cancelled && Array.isArray(result)) setAdBreaks(result); })
+      .catch(() => { /* Ads are optional: the video plays without them. */ });
+    return () => { cancelled = true; };
+  }, [videoId, playbackAllowed]);
+
+  useEffect(() => {
+    const ad = adRef.current;
+    if (!activeAd || !ad) return;
+    const main = videoRef.current;
+    if (main) { ad.volume = main.volume; ad.muted = main.muted; }
+    // Browsers may refuse to autoplay with sound; then play muted (the viewer can unmute)
+    ad.play().catch(() => { ad.muted = true; ad.play().catch(() => {}); });
+  }, [activeAd]);
+
+  function handleTimeUpdate(event) {
+    const player = event.currentTarget;
+    setCurrentTime(player.currentTime);
+    if (activeAd || !Number.isFinite(player.duration) || player.duration <= MIN_VIDEO_SECONDS_FOR_ADS) return;
+    const crossed = adBreaks.map((adBreak, index) => index).filter(index => !playedBreaksRef.current.has(index)
+      && player.currentTime >= adBreaks[index].position * player.duration);
+    if (crossed.length === 0) return;
+    // A seek past several markers plays one ad (the last one crossed), not several back to back; all count as played
+    crossed.forEach(index => playedBreaksRef.current.add(index));
+    startAd(crossed[crossed.length - 1]);
+  }
+
+  function startAd(index) {
+    playedBreaksRef.current.add(index);
+    setPlayedBreaks(new Set(playedBreaksRef.current));
+    videoRef.current?.pause();
+    if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
+    setQualityMenuOpen(false);
+    setAdRemaining(adBreaks[index].durationSeconds);
+    setAdElapsed(0);
+    setActiveAd(adBreaks[index]);
+  }
+
+  function finishAd() {
+    setActiveAd(null);
+    setAdPlaying(false);
+    videoRef.current?.play().catch(() => {});
+  }
+
+  function updateAdRemaining(event) {
+    const ad = event.currentTarget;
+    const total = Number.isFinite(ad.duration) ? ad.duration : activeAd?.durationSeconds ?? 0;
+    setAdRemaining(Math.max(0, Math.ceil(total - ad.currentTime)));
+    setAdElapsed(ad.currentTime);
+  }
+
+  const adSkippable = Boolean(activeAd) && activeAd.durationSeconds > SKIPPABLE_AD_SECONDS;
+  const skipCountdown = Math.max(0, Math.ceil(SKIP_AFTER_SECONDS - adElapsed));
+  const showAdMarkers = duration > MIN_VIDEO_SECONDS_FOR_ADS;
+
+  function toggleAdPlayback() {
+    const ad = adRef.current;
+    if (!ad) return;
+    if (ad.paused) ad.play().catch(() => {});
+    else ad.pause();
+  }
+
+  function toggleAdMute() {
+    if (adRef.current) adRef.current.muted = !adRef.current.muted;
+  }
 
   const tokenQuery = playback?.token ? `?token=${encodeURIComponent(playback.token)}` : '';
 
@@ -270,10 +367,27 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
               </div>
             ) : (
             <div ref={playerWrapRef} className={`watch-player-wrap${theaterMode ? ' is-theater' : ''}`}>
-              <video ref={videoRef} className="watch-player" src={selectedQuality === 'source' ? playback.sourceUrl : `/api/videos/${videoId}/renditions/${selectedQuality}${tokenQuery}`} onClick={togglePlayback} onLoadedMetadata={event => { setDuration(event.currentTarget.duration); setCurrentTime(event.currentTarget.currentTime); restorePlayback(); }} onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)} onDurationChange={event => setDuration(event.currentTarget.duration)} onPlay={() => setIsPlaying(true)} onPlaying={recordPlaybackHistory} onPause={() => setIsPlaying(false)} onVolumeChange={event => { setVolume(event.currentTarget.volume); setIsMuted(event.currentTarget.muted); }} onEnded={() => setIsPlaying(false)} onError={recoverFromPlaybackError} onRateChange={event => setPlaybackRate(event.currentTarget.playbackRate)} poster={video.thumbnailUrl || undefined} autoPlay playsInline />
-              {!isPlaying && <button type="button" className="watch-center-play" aria-label="Play video" onClick={togglePlayback}><Icon name="play" size={34} /></button>}
-              <div className="watch-controls">
-                <input className="watch-seek" type="range" min="0" max={duration || 0} step="0.1" value={Math.min(currentTime, duration || 0)} aria-label="Seek video" style={{ '--seek-progress': `${duration ? (currentTime / duration) * 100 : 0}%` }} onChange={event => { if (videoRef.current) videoRef.current.currentTime = Number(event.target.value); }} />
+              <video ref={videoRef} className="watch-player" src={selectedQuality === 'source' ? playback.sourceUrl : `/api/videos/${videoId}/renditions/${selectedQuality}${tokenQuery}`} onClick={togglePlayback} onLoadedMetadata={event => { setDuration(event.currentTarget.duration); setCurrentTime(event.currentTarget.currentTime); restorePlayback(); }} onTimeUpdate={handleTimeUpdate} onDurationChange={event => setDuration(event.currentTarget.duration)} onPlay={() => setIsPlaying(true)} onPlaying={recordPlaybackHistory} onPause={() => setIsPlaying(false)} onVolumeChange={event => { setVolume(event.currentTarget.volume); setIsMuted(event.currentTarget.muted); }} onEnded={() => setIsPlaying(false)} onError={recoverFromPlaybackError} onRateChange={event => setPlaybackRate(event.currentTarget.playbackRate)} poster={video.thumbnailUrl || undefined} autoPlay playsInline />
+              {activeAd && <div className="watch-ad" role="region" aria-label="Advertisement">
+                <video ref={adRef} className="watch-ad-player" src={activeAd.sourceUrl} playsInline onClick={toggleAdPlayback}
+                  onTimeUpdate={updateAdRemaining} onLoadedMetadata={updateAdRemaining} onPlay={() => setAdPlaying(true)} onPause={() => setAdPlaying(false)}
+                  onVolumeChange={event => setAdMuted(event.currentTarget.muted)} onEnded={finishAd} onError={finishAd} />
+                <div className="watch-ad-bar">
+                  <button type="button" className="watch-control-button" aria-label={adPlaying ? 'Pause ad' : 'Play ad'} onClick={toggleAdPlayback}><Icon name={adPlaying ? 'pause' : 'play'} /></button>
+                  <button type="button" className="watch-control-button" aria-label={adMuted ? 'Unmute ad' : 'Mute ad'} onClick={toggleAdMute}><Icon name={adMuted ? 'mute' : 'volume'} /></button>
+                  <span className="watch-ad-badge">Ad · {formatPlayerTime(adRemaining)}</span>
+                  <span className="watch-ad-info">{activeAd.title} · {activeAd.channelName}</span>
+                </div>
+                {adSkippable && (skipCountdown > 0
+                  ? <span className="watch-ad-skip is-waiting" aria-live="polite">Skip in {skipCountdown}</span>
+                  : <button type="button" className="watch-ad-skip" onClick={finishAd}>Skip ad ›</button>)}
+              </div>}
+              {!isPlaying && !activeAd && <button type="button" className="watch-center-play" aria-label="Play video" onClick={togglePlayback}><Icon name="play" size={34} /></button>}
+              {!activeAd && <div className="watch-controls">
+                <div className="watch-seek-wrap">
+                  <input className="watch-seek" type="range" min="0" max={duration || 0} step="0.1" value={Math.min(currentTime, duration || 0)} aria-label="Seek video" style={{ '--seek-progress': `${duration ? (currentTime / duration) * 100 : 0}%` }} onChange={event => { if (videoRef.current) videoRef.current.currentTime = Number(event.target.value); }} />
+                  {showAdMarkers && adBreaks.map((adBreak, index) => !playedBreaks.has(index) && <span key={index} className="watch-ad-marker" style={{ left: `${adBreak.position * 100}%` }} title={`Ad at ${formatPlayerTime(adBreak.position * duration)}`} aria-hidden="true" />)}
+                </div>
                 <div className="watch-controls-row">
                   <div className="watch-controls-group">
                     <button type="button" className="watch-control-button" aria-label={isPlaying ? 'Pause' : 'Play'} onClick={togglePlayback}><Icon name={isPlaying ? 'pause' : 'play'} /></button>
@@ -303,7 +417,7 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
                     <button type="button" className="watch-control-button" aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFullscreen}><Icon name="fullscreen" /></button>
                   </div>
                 </div>
-              </div>
+              </div>}
             </div>
             )}
             <h1 className="watch-title">{video.visibility === 'MEMBERS_ONLY' && <span className="members-badge inline">Members only</span>}{video.title}</h1>

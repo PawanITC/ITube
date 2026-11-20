@@ -70,6 +70,16 @@ public class UploadSessionEntity {
     @Column(name = "required_tier_level")
     private Integer requiredTierLevel;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "video_type", nullable = false, length = 10)
+    private VideoType videoType = VideoType.VIDEO;
+
+    @Column(name = "ads_enabled", nullable = false)
+    private boolean adsEnabled;
+
+    @Column(name = "ad_count", nullable = false)
+    private int adCount = 1;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
@@ -103,6 +113,12 @@ public class UploadSessionEntity {
         this.requiredTierLevel = requiredTierLevel;
     }
 
+    public void setType(VideoType videoType, boolean adsEnabled, int adCount) {
+        this.videoType = videoType;
+        this.adsEnabled = adsEnabled;
+        this.adCount = adCount;
+    }
+
     public void setStatus(String status) { this.status = status; }
 
     /** Number of parts the file is split into; every part is partSize bytes except possibly the last. */
@@ -130,6 +146,9 @@ public class UploadSessionEntity {
     public LocalTime getDuration() { return duration; }
     public VideoVisibility getVisibility() { return visibility; }
     public Integer getRequiredTierLevel() { return requiredTierLevel; }
+    public VideoType getVideoType() { return videoType; }
+    public boolean isAdsEnabled() { return adsEnabled; }
+    public int getAdCount() { return adCount; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public OffsetDateTime getExpiresAt() { return expiresAt; }
 }

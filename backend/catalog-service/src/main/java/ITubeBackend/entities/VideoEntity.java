@@ -66,6 +66,18 @@ public class VideoEntity implements Persistable<Long> {
     @Column(name = "required_tier_level")
     private Integer requiredTierLevel;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "video_type", nullable = false, length = 10)
+    private VideoType videoType = VideoType.VIDEO;
+
+    /** Whether ads may play inside this video. Always false for ads. */
+    @Column(name = "ads_enabled", nullable = false)
+    private boolean adsEnabled;
+
+    /** How many ads play in it when adsEnabled, spread evenly. */
+    @Column(name = "ad_count", nullable = false)
+    private int adCount = 1;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
@@ -104,6 +116,9 @@ public class VideoEntity implements Persistable<Long> {
     public void setProcessingStatus(String processingStatus) { this.processingStatus = processingStatus; }
     public void setVisibility(VideoVisibility visibility) { this.visibility = visibility; }
     public void setRequiredTierLevel(Integer requiredTierLevel) { this.requiredTierLevel = requiredTierLevel; }
+    public void setVideoType(VideoType videoType) { this.videoType = videoType; }
+    public void setAdsEnabled(boolean adsEnabled) { this.adsEnabled = adsEnabled; }
+    public void setAdCount(int adCount) { this.adCount = adCount; }
     public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
     public void setTranscodeAttempts(int transcodeAttempts) { this.transcodeAttempts = transcodeAttempts; }
     public void setTranscodeRequestedAt(OffsetDateTime transcodeRequestedAt) { this.transcodeRequestedAt = transcodeRequestedAt; }
@@ -120,6 +135,9 @@ public class VideoEntity implements Persistable<Long> {
     public String getProcessingStatus() { return processingStatus; }
     public VideoVisibility getVisibility() { return visibility; }
     public Integer getRequiredTierLevel() { return requiredTierLevel; }
+    public VideoType getVideoType() { return videoType; }
+    public boolean isAdsEnabled() { return adsEnabled; }
+    public int getAdCount() { return adCount; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public int getTranscodeAttempts() { return transcodeAttempts; }
     public OffsetDateTime getTranscodeRequestedAt() { return transcodeRequestedAt; }

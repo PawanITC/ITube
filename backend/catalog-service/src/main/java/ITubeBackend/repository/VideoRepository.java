@@ -1,5 +1,6 @@
 package ITubeBackend.repository;
 
+import ITubeBackend.dto.video.AdCandidate;
 import ITubeBackend.dto.video.RenditionRef;
 import ITubeBackend.dto.video.VideoAccessDto;
 import ITubeBackend.dto.video.VideoMediaDto;
@@ -22,15 +23,20 @@ import java.util.Optional;
  * need all videos (the feed) are run on each shard and merged by the caller.
  */
 public interface VideoRepository extends JpaRepository<VideoEntity, Long> {
-    /** Feed page from this shard: public and members-only videos (members-only are shown locked), newest first. */
+    /**
+     * Feed page from this shard: public and members-only videos (members-only are shown locked), newest first.
+     * Ads are not listed; they only play inside other videos.
+     */
     @Query("select new ITubeBackend.dto.video.VideoRow(v.videoId, c.channelId, v.title, c.channelName, v.duration, case when v.thumbnailKey is null then false else true end, v.processingStatus, v.visibility, v.requiredTierLevel, c.ownerUserId, v.createdAt) from VideoEntity v join v.channel c where v.visibility in (ITubeBackend.entities.VideoVisibility.PUBLIC, ITubeBackend.entities.VideoVisibility.MEMBERS_ONLY) " +
+            "and v.videoType = ITubeBackend.entities.VideoType.VIDEO " +
             "order by v.createdAt desc, v.videoId desc")
     List<VideoRow> findFeed(Limit limit);
 
-    /** includeHidden lets the channel owner see their unlisted and private videos. */
+    /** includeHidden lets the channel owner see their unlisted and private videos, and their ads. */
     @Query("select new ITubeBackend.dto.video.VideoSummaryDto(v.videoId, v.channel.channelId, v.title, v.channel.channelName, v.duration, case when v.thumbnailKey is null then false else true end, v.processingStatus, v.visibility, v.requiredTierLevel) " +
             "from VideoEntity v where v.channel.channelId = :channelId " +
-            "and (:includeHidden = true or v.visibility in (ITubeBackend.entities.VideoVisibility.PUBLIC, ITubeBackend.entities.VideoVisibility.MEMBERS_ONLY)) order by v.videoId desc")
+            "and (:includeHidden = true or (v.visibility in (ITubeBackend.entities.VideoVisibility.PUBLIC, ITubeBackend.entities.VideoVisibility.MEMBERS_ONLY) " +
+            "and v.videoType = ITubeBackend.entities.VideoType.VIDEO)) order by v.videoId desc")
     List<VideoSummaryDto> findVideoSummariesByChannelId(@Param("channelId") Long channelId,
                                                         @Param("includeHidden") boolean includeHidden);
 
@@ -50,6 +56,16 @@ public interface VideoRepository extends JpaRepository<VideoEntity, Long> {
      */
     @Query("select new ITubeBackend.dto.video.VideoRow(v.videoId, c.channelId, v.title, c.channelName, v.duration, case when v.thumbnailKey is null then false else true end, v.processingStatus, v.visibility, v.requiredTierLevel, c.ownerUserId, v.createdAt) from VideoEntity v join v.channel c where v.videoId in :videoIds")
     List<VideoRow> findRows(@Param("videoIds") Collection<Long> videoIds);
+
+    /** Public ads on this shard that can play inside other videos, newest first. */
+    @Query("select new ITubeBackend.dto.video.AdCandidate(v.videoId, v.title, c.channelName, v.duration) from VideoEntity v join v.channel c " +
+            "where v.videoType = ITubeBackend.entities.VideoType.AD and v.visibility = ITubeBackend.entities.VideoVisibility.PUBLIC " +
+            "and v.processingStatus <> 'FAILED' order by v.createdAt desc, v.videoId desc")
+    List<AdCandidate> findAdCandidates(Limit limit);
+
+    /** How many ads play in the video; 0 if its ads are off. */
+    @Query("select case when v.adsEnabled = true then v.adCount else 0 end from VideoEntity v where v.videoId = :videoId")
+    Optional<Integer> findAdCount(@Param("videoId") Long videoId);
 
     /** Videos stuck in PROCESSING whose transcode was last requested before {@code cutoff} (TranscodeSweeper). */
     @Query("select v from VideoEntity v where v.processingStatus = 'PROCESSING' and " +

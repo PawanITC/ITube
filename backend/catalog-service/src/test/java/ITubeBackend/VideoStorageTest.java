@@ -1,5 +1,7 @@
 package ITubeBackend;
 
+import ITubeBackend.dto.video.AdBreakDto;
+import ITubeBackend.dto.video.AdCandidate;
 import ITubeBackend.dto.video.CreateVideo;
 import ITubeBackend.dto.video.MediaUpload;
 import ITubeBackend.dto.video.VideoDeletedEvent;
@@ -8,6 +10,7 @@ import ITubeBackend.dto.video.VideoAccessDto;
 import ITubeBackend.dto.video.VideoUploadedEvent;
 import ITubeBackend.entities.ChannelEntity;
 import ITubeBackend.entities.VideoEntity;
+import ITubeBackend.entities.VideoType;
 import ITubeBackend.entities.VideoVisibility;
 import ITubeBackend.repository.ChannelRepository;
 import ITubeBackend.repository.VideoRepository;
@@ -100,6 +103,139 @@ class VideoStorageTest {
         verify(events).publishEvent(new VideoUploadedEvent(42L, video.getVideoKey()));
         // The new id comes from the shard's allocator (it encodes the shard), not from the database
         assertThat(video.getVideoId()).isEqualTo(CatalogTestSupport.NEXT_VIDEO_ID);
+    }
+
+    private static CreateVideo ad(LocalTime duration, boolean adsEnabled) {
+        byte[] bytes = {1, 2};
+        return new CreateVideo(5L, new MediaUpload(new MockMultipartFile("file", bytes), bytes.length, "video/mp4"), null,
+                "Ad", duration, VideoVisibility.PUBLIC, null, VideoType.AD, adsEnabled, null);
+    }
+
+    @Test
+    void adsLongerThanOneMinuteAreRefusedBeforeAnythingIsStored() {
+        assertThatThrownBy(() -> service(storage, false).saveVideo(ad(LocalTime.of(0, 1, 1), false)))
+                .isInstanceOfSatisfying(org.springframework.web.server.ResponseStatusException.class, e -> {
+                    assertThat(e.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+                    assertThat(e.getReason()).isEqualTo("Ads can be at most 1 minute long");
+                });
+        verify(videos, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
+    void aOneMinuteAdIsSavedAsAnAdThatNeverShowsAds() {
+        when(videos.save(any())).thenAnswer(call -> call.getArgument(0));
+
+        service(storage, false).saveVideo(ad(LocalTime.of(0, 1), true));
+
+        ArgumentCaptor<VideoEntity> saved = ArgumentCaptor.forClass(VideoEntity.class);
+        verify(videos).save(saved.capture());
+        assertThat(saved.getValue().getVideoType()).isEqualTo(VideoType.AD);
+        assertThat(saved.getValue().isAdsEnabled()).isFalse();
+    }
+
+    @Test
+    void normalVideosKeepTheirAdsChoiceAndMayBeLongerThanAMinute() {
+        when(videos.save(any())).thenAnswer(call -> call.getArgument(0));
+        byte[] bytes = {1, 2};
+
+        service(storage, false).saveVideo(new CreateVideo(5L,
+                new MediaUpload(new MockMultipartFile("file", bytes), bytes.length, "video/mp4"), null,
+                "Long video", LocalTime.of(0, 10), VideoVisibility.PUBLIC, null, VideoType.VIDEO, true, null));
+
+        ArgumentCaptor<VideoEntity> saved = ArgumentCaptor.forClass(VideoEntity.class);
+        verify(videos).save(saved.capture());
+        assertThat(saved.getValue().getVideoType()).isEqualTo(VideoType.VIDEO);
+        assertThat(saved.getValue().isAdsEnabled()).isTrue();
+    }
+
+    @Test
+    void aVideoWithAdsEnabledGetsOneAdAtItsMidpoint() {
+        when(videos.findAccess(42L)).thenReturn(Optional.of(new VideoAccessDto(42L, 5L, OWNER, VideoVisibility.PUBLIC, null, LocalTime.of(0, 10))));
+        when(videos.findAdCount(42L)).thenReturn(Optional.of(1));
+        when(videos.findAdCandidates(any())).thenReturn(List.of(new AdCandidate(43L, "Buy this", "Brand", LocalTime.of(0, 0, 30))));
+
+        assertThat(service(storage, false).adBreaks(42L, null)).containsExactly(
+                new AdBreakDto(0.5, 43L, "Buy this", "Brand", "/api/videos/43/file", 30));
+    }
+
+    @Test
+    void noAdsPlayWhenTheCreatorDisabledThemOrNoAdsExist() {
+        when(videos.findAccess(42L)).thenReturn(Optional.of(new VideoAccessDto(42L, 5L, OWNER, VideoVisibility.PUBLIC, null, LocalTime.of(0, 10))));
+        when(videos.findAdCandidates(any())).thenReturn(List.of(new AdCandidate(43L, "Buy this", "Brand", LocalTime.of(0, 0, 30))));
+        when(videos.findAdCount(42L)).thenReturn(Optional.of(0));
+        assertThat(service(storage, false).adBreaks(42L, null)).isEmpty();
+
+        when(videos.findAdCount(42L)).thenReturn(Optional.of(1));
+        when(videos.findAdCandidates(any())).thenReturn(List.of());
+        assertThat(service(storage, false).adBreaks(42L, null)).isEmpty();
+    }
+
+    @Test
+    void videosOfOneMinuteOrLessNeverGetAds() {
+        when(videos.findAdCount(42L)).thenReturn(Optional.of(1));
+        when(videos.findAdCandidates(any())).thenReturn(List.of(new AdCandidate(43L, "Buy this", "Brand", LocalTime.of(0, 0, 30))));
+
+        when(videos.findAccess(42L)).thenReturn(Optional.of(new VideoAccessDto(42L, 5L, OWNER, VideoVisibility.PUBLIC, null, LocalTime.of(0, 1))));
+        assertThat(service(storage, false).adBreaks(42L, null)).isEmpty();
+
+        when(videos.findAccess(42L)).thenReturn(Optional.of(new VideoAccessDto(42L, 5L, OWNER, VideoVisibility.PUBLIC, null, LocalTime.of(0, 1, 1))));
+        assertThat(service(storage, false).adBreaks(42L, null)).hasSize(1);
+    }
+
+    @Test
+    void severalAdsAreSpreadEvenlyAndAreDifferentAdsWherePossible() {
+        when(videos.findAccess(42L)).thenReturn(Optional.of(new VideoAccessDto(42L, 5L, OWNER, VideoVisibility.PUBLIC, null, LocalTime.of(0, 25))));
+        when(videos.findAdCount(42L)).thenReturn(Optional.of(2));
+        when(videos.findAdCandidates(any())).thenReturn(List.of(
+                new AdCandidate(43L, "Buy this", "Brand", LocalTime.of(0, 0, 30)),
+                new AdCandidate(44L, "Buy that", "Brand", LocalTime.of(0, 0, 20))));
+
+        List<AdBreakDto> breaks = service(storage, false).adBreaks(42L, null);
+
+        assertThat(breaks).extracting(AdBreakDto::position).containsExactly(1.0 / 3, 2.0 / 3);
+        assertThat(breaks).extracting(AdBreakDto::adVideoId).containsExactlyInAnyOrder(43L, 44L);
+    }
+
+    @Test
+    void aStoredAdCountAboveOnePerTenMinutesIsCapped() {
+        when(videos.findAccess(42L)).thenReturn(Optional.of(new VideoAccessDto(42L, 5L, OWNER, VideoVisibility.PUBLIC, null, LocalTime.of(0, 19, 59))));
+        when(videos.findAdCount(42L)).thenReturn(Optional.of(3));
+        when(videos.findAdCandidates(any())).thenReturn(List.of(new AdCandidate(43L, "Buy this", "Brand", LocalTime.of(0, 0, 30))));
+
+        assertThat(service(storage, false).adBreaks(42L, null)).extracting(AdBreakDto::position).containsExactly(0.5);
+    }
+
+    @Test
+    void uploadsMayChooseUpToOneAdPerTenMinutes() {
+        assertThat(VideoService.maxAdsFor(LocalTime.of(0, 5))).isEqualTo(1);
+        assertThat(VideoService.maxAdsFor(LocalTime.of(0, 19, 59))).isEqualTo(1);
+        assertThat(VideoService.maxAdsFor(LocalTime.of(0, 20))).isEqualTo(2);
+        assertThat(VideoService.maxAdsFor(LocalTime.of(1, 0))).isEqualTo(6);
+        when(videos.save(any())).thenAnswer(call -> call.getArgument(0));
+        byte[] bytes = {1, 2};
+
+        assertThatThrownBy(() -> service(storage, false).saveVideo(new CreateVideo(5L,
+                new MediaUpload(new MockMultipartFile("file", bytes), bytes.length, "video/mp4"), null,
+                "Long video", LocalTime.of(0, 25), VideoVisibility.PUBLIC, null, VideoType.VIDEO, true, 3)))
+                .isInstanceOfSatisfying(org.springframework.web.server.ResponseStatusException.class, e -> {
+                    assertThat(e.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+                    assertThat(e.getReason()).isEqualTo("This video can have between 1 and 2 ads (one per 10 minutes of video)");
+                });
+
+        service(storage, false).saveVideo(new CreateVideo(5L,
+                new MediaUpload(new MockMultipartFile("file", bytes), bytes.length, "video/mp4"), null,
+                "Long video", LocalTime.of(0, 25), VideoVisibility.PUBLIC, null, VideoType.VIDEO, true, 2));
+        ArgumentCaptor<VideoEntity> saved = ArgumentCaptor.forClass(VideoEntity.class);
+        verify(videos).save(saved.capture());
+        assertThat(saved.getValue().getAdCount()).isEqualTo(2);
+    }
+
+    @Test
+    void adBreaksOfSomeoneElsesPrivateVideoAreNotFound() {
+        when(videos.findAccess(42L)).thenReturn(Optional.of(new VideoAccessDto(42L, 5L, OWNER, VideoVisibility.PRIVATE, null, LocalTime.of(0, 10))));
+        assertThatThrownBy(() -> service(storage, false).adBreaks(42L, 99L))
+                .isInstanceOfSatisfying(org.springframework.web.server.ResponseStatusException.class,
+                        e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
     }
 
     @Test

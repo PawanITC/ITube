@@ -19,6 +19,22 @@ function formatDuration(seconds) {
   return [hours, minutes, remainingSeconds].map(value => String(value).padStart(2, '0')).join(':');
 }
 
+/** Ads can be at most this long (the backend checks it too). */
+const MAX_AD_SECONDS = 60;
+/** Ads only play in videos longer than this. */
+const MIN_VIDEO_SECONDS_FOR_ADS = 60;
+/** A video may have one ad per 10 minutes, and at least one (the backend checks the same rule). */
+const SECONDS_PER_AD = 600;
+
+function maxAdsFor(durationSeconds) {
+  return durationSeconds === null ? 1 : Math.max(1, Math.floor(durationSeconds / SECONDS_PER_AD));
+}
+
+const UPLOAD_TYPES = [
+  { value: 'VIDEO', label: 'Video' },
+  { value: 'AD', label: 'Ad' },
+];
+
 function readVideoMetadataAndThumbnail(file) {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
@@ -68,6 +84,10 @@ export default function UploadVideoPage({ session, onCancel }) {
   const [thumbnailPreview, setThumbnailPreview] = useState('');
   const [title, setTitle] = useState('');
   const [duration, setDuration] = useState('');
+  const [durationSeconds, setDurationSeconds] = useState(null);
+  const [videoType, setVideoType] = useState('VIDEO');
+  const [adsEnabled, setAdsEnabled] = useState(true);
+  const [adCount, setAdCount] = useState(1);
   const [visibility, setVisibility] = useState('PUBLIC');
   const [requiredTierLevel, setRequiredTierLevel] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -137,6 +157,7 @@ export default function UploadVideoPage({ session, onCancel }) {
     setFile(selectedFile);
     setThumbnail(null);
     setDuration('');
+    setDurationSeconds(null);
     setError('');
     setSuccess('');
     if (!selectedFile) return;
@@ -144,6 +165,7 @@ export default function UploadVideoPage({ session, onCancel }) {
     readVideoMetadataAndThumbnail(selectedFile)
       .then(({ duration: seconds, thumbnail: generatedThumbnail }) => {
         setDuration(formatDuration(seconds));
+        setDurationSeconds(Math.round(seconds));
         setThumbnail(generatedThumbnail);
       })
       .catch(thumbnailError => setError(thumbnailError.message));
@@ -160,6 +182,17 @@ export default function UploadVideoPage({ session, onCancel }) {
     setError('');
   }
 
+  const isAd = videoType === 'AD';
+  const adTooLong = isAd && durationSeconds !== null && durationSeconds > MAX_AD_SECONDS;
+  const maxAds = maxAdsFor(durationSeconds);
+
+  function selectVideoType(type) {
+    if (uploading) return;
+    setVideoType(type);
+    setError('');
+    setSuccess('');
+  }
+
   async function submitVideo(event) {
     event.preventDefault();
     setError('');
@@ -169,7 +202,11 @@ export default function UploadVideoPage({ session, onCancel }) {
       return;
     }
     if (!file || !duration || !title.trim()) {
-      setError('Choose a video, wait for its duration to load, and enter a title.');
+      setError(`Choose a ${isAd ? 'video file for the ad' : 'video'}, wait for its duration to load, and enter a title.`);
+      return;
+    }
+    if (adTooLong) {
+      setError(`Ads can be at most 1 minute long. This one is ${duration}.`);
       return;
     }
 
@@ -187,6 +224,9 @@ export default function UploadVideoPage({ session, onCancel }) {
         duration,
         visibility,
         requiredTierLevel: visibility === 'MEMBERS_ONLY' && requiredTierLevel ? Number(requiredTierLevel) : null,
+        videoType,
+        adsEnabled: !isAd && adsEnabled,
+        adCount: !isAd && adsEnabled ? Math.min(adCount, maxAds) : null,
       });
     } catch (startError) {
       setError(startError.message || 'Upload failed. Please try again.');
@@ -213,10 +253,11 @@ export default function UploadVideoPage({ session, onCancel }) {
       });
       await uploadsApi.complete(upload.uploadId, videoThumbnail);
       setUploadProgress(100);
-      setSuccess('Your video was posted. Quality options are processing in the background.');
+      setSuccess(`Your ${upload.videoType === 'AD' ? 'ad' : 'video'} was posted. Quality options are processing in the background.`);
       setFile(null);
       setTitle('');
       setDuration('');
+      setDurationSeconds(null);
       setThumbnail(null);
       if (fileInput.current) fileInput.current.value = '';
       if (thumbnailInput.current) thumbnailInput.current.value = '';
@@ -279,13 +320,21 @@ export default function UploadVideoPage({ session, onCancel }) {
     <section className="upload-page">
       <button className="upload-back" type="button" onClick={onCancel}>← Back to home</button>
       <div className="upload-card">
-        <h1>Upload video</h1>
-        <p className="upload-description">Add a video to channel #{activeSession?.channelId ?? '…'}.</p>
-        {sessionLoading ? <p role="status">Checking your session…</p> : (
-          <form className="upload-form" onSubmit={submitVideo}>
-            <label className="upload-file-label" htmlFor="video-file">Video file</label>
+        <h1>{isAd ? 'Upload ad' : 'Upload video'}</h1>
+        <p className="upload-description">Add {isAd ? 'an ad' : 'a video'} to channel #{activeSession?.channelId ?? '…'}.</p>
+        {sessionLoading ? <p role="status">Checking your session…</p> : <>
+          <div className="upload-type-tabs" role="tablist" aria-label="What are you uploading?">
+            {UPLOAD_TYPES.map(type => <button key={type.value} type="button" role="tab" id={`upload-tab-${type.value}`}
+              aria-selected={videoType === type.value} aria-controls="upload-form"
+              className={videoType === type.value ? 'upload-type-tab active' : 'upload-type-tab'}
+              disabled={uploading} onClick={() => selectVideoType(type.value)}>{type.label}</button>)}
+          </div>
+          <form id="upload-form" className="upload-form" role="tabpanel" aria-labelledby={`upload-tab-${videoType}`} onSubmit={submitVideo}>
+            <label className="upload-file-label" htmlFor="video-file">{isAd ? 'Ad video file' : 'Video file'}</label>
             <input ref={fileInput} id="video-file" type="file" accept="video/*" onChange={selectFile} />
+            {isAd && <p className="upload-file-name">Ads can be at most 1 minute long.</p>}
             {file && <p className="upload-file-name">{file.name}{duration ? ` · ${duration}` : ' · Reading duration…'}</p>}
+            {adTooLong && <p className="upload-error" role="alert">This video is {duration} long. Ads can be at most 1 minute: choose a shorter video or upload it as a normal video.</p>}
 
             <label htmlFor="video-thumbnail">Thumbnail (optional)</label>
             <input ref={thumbnailInput} id="video-thumbnail" type="file" accept="image/*" onChange={selectThumbnail} />
@@ -294,7 +343,25 @@ export default function UploadVideoPage({ session, onCancel }) {
 
             <label htmlFor="video-title">Title</label>
             <input id="video-title" type="text" maxLength="255" value={title}
-              onChange={event => setTitle(event.target.value)} placeholder="Add a title for your video" required />
+              onChange={event => setTitle(event.target.value)} placeholder={isAd ? 'Add a title for your ad' : 'Add a title for your video'} required />
+
+            {!isAd && <label className="upload-checkbox" htmlFor="video-ads">
+              <input id="video-ads" type="checkbox" checked={adsEnabled} onChange={event => setAdsEnabled(event.target.checked)} />
+              <span>Show ads in this video</span>
+            </label>}
+            {!isAd && adsEnabled && <>
+              <label htmlFor="video-ad-count">Number of ads</label>
+              <select id="video-ad-count" value={Math.min(adCount, maxAds)} onChange={event => setAdCount(Number(event.target.value))}>
+                {Array.from({ length: maxAds }, (_, index) => index + 1).map(count => <option key={count} value={count}>
+                  {count === 1 ? '1 ad' : `${count} ads`}
+                </option>)}
+              </select>
+              <p className="upload-file-name">
+                {durationSeconds !== null && durationSeconds <= MIN_VIDEO_SECONDS_FOR_ADS
+                  ? 'Ads only play in videos longer than 1 minute.'
+                  : `One ad per 10 minutes of video${durationSeconds !== null ? `: up to ${maxAds} for this one` : ''}. Ads are spread evenly through the video.`}
+              </p>
+            </>}
 
             <label htmlFor="video-visibility">Visibility</label>
             <select id="video-visibility" value={visibility} onChange={event => setVisibility(event.target.value)}>
@@ -319,11 +386,11 @@ export default function UploadVideoPage({ session, onCancel }) {
               <button type="button" className="upload-pause" onClick={pauseUpload}>Pause upload</button>
             </div>}
 
-            <button className="upload-submit" type="submit" disabled={uploading || sessionLoading || !activeSession}>
-              {uploading ? 'Posting…' : 'Post video'}
+            <button className="upload-submit" type="submit" disabled={uploading || sessionLoading || !activeSession || adTooLong}>
+              {uploading ? 'Posting…' : isAd ? 'Post ad' : 'Post video'}
             </button>
           </form>
-        )}
+        </>}
         {!sessionLoading && activeSession && openUploads.length > 0 && <section className="upload-unfinished" aria-labelledby="unfinished-heading">
           <h2 id="unfinished-heading">Unfinished uploads</h2>
           <p className="upload-file-name">To continue one, choose the same video file again.</p>
