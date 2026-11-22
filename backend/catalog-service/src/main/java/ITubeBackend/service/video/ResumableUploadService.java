@@ -7,6 +7,7 @@ import ITubeBackend.dto.video.ResumableUploadDtos.PartUrlDto;
 import ITubeBackend.dto.video.ResumableUploadDtos.StartUploadRequest;
 import ITubeBackend.dto.video.ResumableUploadDtos.UploadSessionDto;
 import ITubeBackend.entities.UploadSessionEntity;
+import ITubeBackend.entities.VideoType;
 import ITubeBackend.entities.VideoVisibility;
 import ITubeBackend.repository.UploadSessionRepository;
 import ITubeBackend.sharding.Shards;
@@ -100,9 +101,13 @@ public class ResumableUploadService {
         if (contentType.length() > 100) {
             throw new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Choose a video file");
         }
+        VideoType videoType = request.videoType() == null ? VideoType.VIDEO : request.videoType();
+        // Checked here too so an ad that is too long is refused before any bytes are sent
         VideoVisibility visibility = videoService.validateDetails(channelId, request.title(), request.duration(),
-                request.visibility(), request.requiredTierLevel());
+                request.visibility(), request.requiredTierLevel(), videoType);
         Integer tier = visibility == VideoVisibility.MEMBERS_ONLY ? request.requiredTierLevel() : null;
+        boolean adsEnabled = videoType == VideoType.VIDEO && Boolean.TRUE.equals(request.adsEnabled());
+        int adCount = Math.max(1, VideoService.resolveAdCount(videoType, adsEnabled, request.adCount(), request.duration()));
         String title = request.title().strip();
         OffsetDateTime now = OffsetDateTime.now(clock);
 
@@ -119,6 +124,7 @@ public class ResumableUploadService {
             transactionTemplate.executeWithoutResult(status -> {
                 UploadSessionEntity managed = sessions.findById(session.getUploadSessionId()).orElseThrow();
                 managed.setDetails(title, request.duration(), visibility, tier);
+                managed.setType(videoType, adsEnabled, adCount);
             });
             return toDto(sessions.findById(session.getUploadSessionId()).orElseThrow());
         }
@@ -135,6 +141,7 @@ public class ResumableUploadService {
                 fileName, request.fileSize(), request.lastModified(), contentType, partSize,
                 now, now.plus(properties.uploadTtl()));
         session.setDetails(title, request.duration(), visibility, tier);
+        session.setType(videoType, adsEnabled, adCount);
         try {
             transactionTemplate.executeWithoutResult(status -> sessions.save(session));
         } catch (RuntimeException exception) {
@@ -235,7 +242,8 @@ public class ResumableUploadService {
 
         CreateVideo video = new CreateVideo(session.getChannelId(),
                 new MediaUpload(null, session.getFileSize(), session.getContentType()), thumbnail,
-                session.getTitle(), session.getDuration(), session.getVisibility(), session.getRequiredTierLevel());
+                session.getTitle(), session.getDuration(), session.getVisibility(), session.getRequiredTierLevel(),
+                session.getVideoType(), session.isAdsEnabled(), session.getAdCount());
         return videoService.saveUploadedVideo(video, session.getStorageKey(), () -> {
             if (sessions.deleteSession(uploadId) == 0) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "This upload was already posted");
@@ -364,7 +372,8 @@ public class ResumableUploadService {
         return new UploadSessionDto(session.getUploadSessionId(), session.getFileName(), session.getFileSize(),
                 session.getFileLastModified(), session.getContentType(), session.getPartSize(), session.partCount(),
                 uploadedParts, uploadedBytes, session.getTitle(), session.getDuration(), session.getVisibility(),
-                session.getRequiredTierLevel(), session.getCreatedAt(), session.getExpiresAt());
+                session.getRequiredTierLevel(), session.getVideoType(), session.isAdsEnabled(), session.getAdCount(),
+                session.getCreatedAt(), session.getExpiresAt());
     }
 
     private void abortQuietly(String key, String storageUploadId) {

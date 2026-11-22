@@ -3,6 +3,7 @@ package ITubeBackend.cache;
 import ITubeBackend.common.cache.CacheConfig;
 import ITubeBackend.common.events.ItubeTopics;
 import ITubeBackend.dto.channel.ChannelDto;
+import ITubeBackend.dto.video.AdCandidate;
 import ITubeBackend.dto.video.VideoAccessDto;
 import ITubeBackend.dto.video.VideoMediaDto;
 import ITubeBackend.dto.video.VideoRow;
@@ -25,7 +26,9 @@ import java.util.List;
  * <ul>
  *   <li>video-access / video-media / video-row: per video, read on every play, thumbnail and History page;</li>
  *   <li>feed: the home page, rebuilt from all shards at most every 10 s per pod instead of on every visit;</li>
- *   <li>channel: per channel, for other services.</li>
+ *   <li>channel: per channel, for other services;</li>
+ *   <li>video-ads: per video, how many ads play in it (read on every watch page);</li>
+ *   <li>ad-pool: the public ads to choose from, gathered from all shards at most every 30 s per pod.</li>
  * </ul>
  * <b>Keeping several pods consistent:</b> each pod has its own caches. When a video changes, this pod evicts it and
  * broadcasts the id on Kafka (catalog.cache-invalidation); every catalog pod listens with its own consumer group,
@@ -40,6 +43,9 @@ public class CatalogCaches {
     public final Cache<Long, VideoRow> videoRows;
     public final Cache<Integer, List<VideoSummaryDto>> feed;
     public final Cache<Long, ChannelDto> channels;
+    public final Cache<Long, Integer> videoAds;
+    /** One entry (key 0): ads are picked from this list instead of asking every shard on every view. */
+    public final Cache<Integer, List<AdCandidate>> adPool;
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ItubeTopics topics;
 
@@ -49,6 +55,8 @@ public class CatalogCaches {
         this.videoRows = CacheConfig.nativeCache(cacheManager, "video-row");
         this.feed = CacheConfig.nativeCache(cacheManager, "feed");
         this.channels = CacheConfig.nativeCache(cacheManager, "channel");
+        this.videoAds = CacheConfig.nativeCache(cacheManager, "video-ads");
+        this.adPool = CacheConfig.nativeCache(cacheManager, "ad-pool");
         this.kafkaTemplate = kafkaTemplate;
         this.topics = topics;
     }
@@ -83,8 +91,10 @@ public class CatalogCaches {
         videoAccess.invalidate(videoId);
         videoMedia.invalidate(videoId);
         videoRows.invalidate(videoId);
-        // Visibility or deletion changes what the feed may show; it is cheap to rebuild
+        videoAds.invalidate(videoId);
+        // Visibility or deletion changes what the feed may show and which ads may play; both are cheap to rebuild
         feed.invalidateAll();
+        adPool.invalidateAll();
     }
 
     @Configuration

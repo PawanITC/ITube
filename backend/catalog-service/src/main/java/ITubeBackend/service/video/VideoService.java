@@ -17,7 +17,10 @@ import ITubeBackend.dto.video.VideoSummaryDto;
 import ITubeBackend.dto.video.VideoTranscodedEvent;
 import ITubeBackend.dto.video.VideoUploadedEvent;
 import ITubeBackend.entities.ChannelEntity;
+import ITubeBackend.dto.video.AdBreakDto;
+import ITubeBackend.dto.video.AdCandidate;
 import ITubeBackend.entities.VideoEntity;
+import ITubeBackend.entities.VideoType;
 import ITubeBackend.entities.VideoVisibility;
 import ITubeBackend.repository.ChannelRepository;
 import ITubeBackend.repository.VideoRepository;
@@ -47,10 +50,12 @@ import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -73,6 +78,12 @@ public class VideoService {
     private static final Logger log = LoggerFactory.getLogger(VideoService.class);
     private static final long MAX_CHUNK_BYTES = 4L * 1024 * 1024;
     public static final int MAX_FEED_SIZE = 200;
+    /** A video may have one ad per this many seconds of its length (10 minutes), and always at least one. */
+    static final int SECONDS_PER_AD = 600;
+    /** Ads only play in videos longer than this (one minute). */
+    static final int MIN_SECONDS_FOR_ADS = 60;
+    /** How many of each shard's newest public ads are kept to choose from. */
+    static final int MAX_AD_POOL_PER_SHARD = 500;
 
     private final ChannelRepository channelRepository;
     private final VideoRepository videoRepository;
@@ -119,7 +130,8 @@ public class VideoService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A video file is required");
         }
         VideoVisibility visibility = validateDetails(createVideo.channelId(), createVideo.title(), createVideo.duration(),
-                createVideo.visibility(), createVideo.requiredTierLevel());
+                createVideo.visibility(), createVideo.requiredTierLevel(), createVideo.videoType());
+        resolveAdCount(createVideo.videoType(), createVideo.adsEnabled(), createVideo.adCount(), createVideo.duration());
 
         String folder = MediaKeys.newVideoFolder();
         List<String> uploaded = new ArrayList<>();
@@ -142,7 +154,7 @@ public class VideoService {
      */
     public Long saveUploadedVideo(CreateVideo createVideo, String videoKey, Runnable inSameTransaction) {
         VideoVisibility visibility = validateDetails(createVideo.channelId(), createVideo.title(), createVideo.duration(),
-                createVideo.visibility(), createVideo.requiredTierLevel());
+                createVideo.visibility(), createVideo.requiredTierLevel(), createVideo.videoType());
         List<String> uploaded = new ArrayList<>();
         try {
             return recordVideo(createVideo, visibility, videoKey, uploaded, inSameTransaction);
@@ -155,11 +167,20 @@ public class VideoService {
     /** Checks the details shared by both upload paths and returns the effective visibility. */
     public VideoVisibility validateDetails(Long channelId, String title, LocalTime duration, VideoVisibility visibility,
                                            Integer requiredTierLevel) {
+        return validateDetails(channelId, title, duration, visibility, requiredTierLevel, VideoType.VIDEO);
+    }
+
+    /** As above; ads must also be at most {@link VideoType#MAX_AD_DURATION} long. */
+    public VideoVisibility validateDetails(Long channelId, String title, LocalTime duration, VideoVisibility visibility,
+                                           Integer requiredTierLevel, VideoType videoType) {
         if (title == null || title.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Video title is required");
         }
         if (duration == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Video duration is required");
+        }
+        if (videoType == VideoType.AD && duration.isAfter(VideoType.MAX_AD_DURATION)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Ads can be at most 1 minute long");
         }
         VideoVisibility effective = visibility == null ? VideoVisibility.PUBLIC : visibility;
         validateTierLevel(effective, requiredTierLevel);
@@ -209,6 +230,11 @@ public class VideoService {
         video.setThumbnailContentType(thumbnailKey == null ? null : createVideo.thumbnail().contentType());
         video.setTitle(createVideo.title().trim());
         video.setDuration(createVideo.duration());
+        VideoType videoType = createVideo.videoType() == null ? VideoType.VIDEO : createVideo.videoType();
+        video.setVideoType(videoType);
+        video.setAdsEnabled(videoType == VideoType.VIDEO && createVideo.adsEnabled());
+        int adCount = resolveAdCount(videoType, createVideo.adsEnabled(), createVideo.adCount(), createVideo.duration());
+        video.setAdCount(Math.max(1, adCount));
         video.setProcessingStatus("PROCESSING");
         video.setCreatedAt(now);
         video.setTranscodeRequestedAt(now);
@@ -243,6 +269,61 @@ public class VideoService {
         PlaybackTokenService.IssuedToken token = playbackTokenService.issue(videoId, userId, videoLength);
         return new PlaybackAuthorisationDto(videoId, access.channelId(), visibility, access.requiredTierLevel(),
                 true, null, sourceUrl + "?token=" + token.token(), token.token(), token.expiresAt());
+    }
+
+    /**
+     * The ads to play during a video, if it is longer than a minute, the creator enabled ads and any public ad
+     * exists: as many as the creator chose (at most one per 10 minutes), spread evenly, so n ads play at
+     * 1/(n+1), 2/(n+1), ... n/(n+1) of the way in. Ads are chosen at random per view, different ones where
+     * possible. Empty for ads themselves (they never show ads).
+     */
+    public List<AdBreakDto> adBreaks(Long videoId, Long userId) {
+        VideoAccessDto access = requireAccess(videoId);
+        if (access.visibility() == VideoVisibility.PRIVATE && !access.ownerUserId().equals(userId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Video not found");
+        }
+        if (access.duration() == null || access.duration().toSecondOfDay() <= MIN_SECONDS_FOR_ADS) return List.of();
+        int count = Math.min(adCount(videoId), maxAdsFor(access.duration()));
+        if (count < 1) return List.of();
+        List<AdCandidate> pool = caches.adPool.get(0, key -> shards.scatter(shard ->
+                videoRepository.findAdCandidates(Limit.of(MAX_AD_POOL_PER_SHARD))));
+        if (pool.isEmpty()) return List.of();
+        List<AdCandidate> shuffled = new ArrayList<>(pool);
+        Collections.shuffle(shuffled, ThreadLocalRandom.current());
+        List<AdBreakDto> breaks = new ArrayList<>();
+        for (int slot = 1; slot <= count; slot++) {
+            AdCandidate ad = shuffled.get((slot - 1) % shuffled.size());
+            breaks.add(new AdBreakDto((double) slot / (count + 1), ad.videoId(), ad.title(), ad.channelName(),
+                    "/api/videos/" + ad.videoId() + "/file", ad.duration().toSecondOfDay()));
+        }
+        return breaks;
+    }
+
+    /** How many ads play in the video; 0 if its ads are off. */
+    private int adCount(Long videoId) {
+        return caches.videoAds.get(videoId, key -> shards.onShardOf(videoId,
+                () -> videoRepository.findAdCount(videoId)).orElse(0));
+    }
+
+    /** The most ads a video of this length may have: one per 10 minutes, and at least one. */
+    public static int maxAdsFor(LocalTime duration) {
+        return duration == null ? 1 : Math.max(1, duration.toSecondOfDay() / SECONDS_PER_AD);
+    }
+
+    /**
+     * The number of ads to store for an upload: 0 when ads are off (and always for ads), otherwise the requested
+     * number (one if not given), which must be between 1 and {@link #maxAdsFor}.
+     */
+    public static int resolveAdCount(VideoType videoType, boolean adsEnabled, Integer requested, LocalTime duration) {
+        if (videoType == VideoType.AD || !adsEnabled) return 0;
+        int count = requested == null ? 1 : requested;
+        int max = maxAdsFor(duration);
+        if (count < 1 || count > max) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, max == 1
+                    ? "This video can have 1 ad (one per 10 minutes of video)"
+                    : "This video can have between 1 and " + max + " ads (one per 10 minutes of video)");
+        }
+        return count;
     }
 
     private PlaybackDecision decide(Long userId, VideoAccessDto access) {

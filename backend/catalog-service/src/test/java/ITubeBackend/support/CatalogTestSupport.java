@@ -67,7 +67,8 @@ public final class CatalogTestSupport {
     public static CatalogCaches caches() {
         CacheManager cacheManager = new CacheConfig().cacheManager(new CacheConfig.CacheSpecs(Map.of(
                 "video-access", "maximumSize=100", "video-media", "maximumSize=100", "video-row", "maximumSize=100",
-                "feed", "maximumSize=10", "channel", "maximumSize=100")));
+                "feed", "maximumSize=10", "channel", "maximumSize=100", "video-ads", "maximumSize=100",
+                "ad-pool", "maximumSize=1")));
         KafkaTemplate<String, String> kafka = mock(KafkaTemplate.class);
         when(kafka.send(anyString(), anyString(), anyString())).thenReturn(CompletableFuture.completedFuture(null));
         ItubeTopics topics = new ItubeTopics("video.transcode", "video.transcoded", "video.deleted", "account.created",
