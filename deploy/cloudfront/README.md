@@ -60,11 +60,14 @@ MP4 Range requests support seeking; this is not an HLS/DASH adaptive streaming i
    ```powershell
    $env:TF_VAR_signing_public_key_pem = Get-Content .\signing-public-key.pem -Raw
    terraform init
-   terraform plan '-out=review.tfplan'
+   terraform plan '-var=enabled=true' '-out=review.tfplan'
    ```
 
    Review before applying. The separate remote state key is `itube/cloudfront/terraform.tfstate`. The media bucket
    itself remains owned by `deploy/terraform`. The CDN stack must not destroy or replace it.
+   The checked-in default is disabled. Explicitly enable for a demo, then plan/apply with `-var=enabled=false`
+   afterward and wait until CloudFront reports `Deployed` with `Enabled=false`. Clear the GitHub environment
+   variable `CLOUDFRONT_BASE_URL` after shutdown so future application deployments do not use a disabled CDN.
 4. Restore the retained media bucket's public-access block if the dev teardown removed it. Its owner is still
    `deploy/terraform`. For this exceptional repair while EKS stays off, review/apply only
    `aws_s3_bucket_public_access_block.media` using a targeted saved plan; do not apply the full EKS stack.
@@ -138,3 +141,20 @@ to pre-signed S3 and the frontend serves its local assets. Keep the distribution
 expire. Old files are intentionally not deleted by deploys. Before destroying this stack, review all users and
 explicitly empty only its assets bucket if appropriate (`force_destroy=false` prevents accidental data deletion).
 Do not rotate the public key without updating the matching GitHub secret and redeploying catalog pods.
+
+## Live acceptance evidence — 2026-11-22
+
+[Successful GitHub run, attempt 2](https://github.com/PawanITC/ITube/actions/runs/45034061445/attempts/2):
+
+- Both assets and media: MISS followed by HIT, Age 1, edge location IAD89-P3.
+- A different valid media signature immediately reused the same cached object (HIT).
+- Range request returned HTTP 206 and the expected 16 bytes/Content-Range.
+- Unsigned media after cache warmup, tampered URL and expired signature all returned 403.
+- Direct anonymous access to each S3 origin object returned 403.
+- CORS and viewer `private, no-store` headers passed assertions.
+- Both synthetic objects were deleted; EKS was never started.
+
+The first attempt exposed the repository's immutable OIDC subject format. The role now trusts the exact
+repository IDs and `dev` environment. Public key PEM is normalized to AWS's trailing-newline representation
+to prevent unnecessary key replacement on subsequent plans. Application tests passed locally (174 backend,
+50 frontend); the complete application journey through CloudFront was not run because EKS stayed off.

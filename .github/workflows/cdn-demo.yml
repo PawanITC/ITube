@@ -1,9 +1,5 @@
 name: CloudFront CDN acceptance demo
 on:
-  # Bootstrap this new workflow on the feature branch before it exists on the default branch.
-  push:
-    branches: [codex/cloudfront-cdn]
-    paths: ['.github/workflows/cdn-demo.yml']
   workflow_dispatch:
 permissions:
   contents: read

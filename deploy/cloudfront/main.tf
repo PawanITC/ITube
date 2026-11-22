@@ -16,7 +16,7 @@ variable "signing_public_key_pem" {
 variable "enabled" {
   description = "Disable distribution when retiring the demo; this is not an automatic spending cap."
   type        = bool
-  default     = true
+  default     = false
 }
 
 data "aws_caller_identity" "current" {}
@@ -52,7 +52,8 @@ resource "aws_cloudfront_origin_access_control" "s3" {
 }
 resource "aws_cloudfront_public_key" "media" {
   name_prefix = "itube-media-"
-  encoded_key = var.signing_public_key_pem
+  # CloudFront canonicalizes PEM with a trailing LF; avoid replacing the key on every subsequent plan.
+  encoded_key = "${trimspace(replace(var.signing_public_key_pem, "\r\n", "\n"))}\n"
   lifecycle { create_before_destroy = true }
 }
 resource "aws_cloudfront_key_group" "media" {

@@ -25,6 +25,10 @@ run "private_media_and_public_assets_are_separate" {
   # Apply against the mock provider only: no AWS resources or charges.
   command = apply
   assert {
+    condition     = !aws_cloudfront_distribution.cdn.enabled
+    error_message = "The demo must remain disabled unless explicitly enabled for a session."
+  }
+  assert {
     condition     = length(aws_cloudfront_distribution.cdn.origin) == 2
     error_message = "The demo must have two distinct origins."
   }

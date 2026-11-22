@@ -17,7 +17,8 @@ data "aws_iam_policy_document" "demo_trust" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:PawanITC/ITube:environment:dev"]
+      # Repository uses GitHub immutable subjects (verified through actions/oidc/customization/sub).
+      values = ["repo:PawanITC@239576472/ITube@1418608547:environment:dev"]
     }
   }
 }
