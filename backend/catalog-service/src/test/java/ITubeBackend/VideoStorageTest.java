@@ -74,6 +74,28 @@ class VideoStorageTest {
                 CatalogTestSupport.storageProperties(redirect), transactions, java.time.Clock.systemUTC());
     }
 
+    @Test
+    void cloudfrontRedirectIsNeverCachedEvenForPublicVideo() {
+        VideoService service = service(storage, true);
+        ITubeBackend.cdn.MediaCdn cdn = mock(ITubeBackend.cdn.MediaCdn.class);
+        when(cdn.signedUrl("videos/abc/source", true)).thenReturn(Optional.of(URI.create("https://demo.cloudfront.net/videos/abc/source?Signature=test")));
+        ReflectionTestUtils.setField(service, "cdn", cdn);
+        for (boolean publicVideo : new boolean[]{true, false}) {
+            var response = service.serveMedia("videos/abc/source", null, publicVideo, true);
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FOUND);
+            assertThat(response.getHeaders().getLocation().getHost()).isEqualTo("demo.cloudfront.net");
+            assertThat(response.getHeaders().getCacheControl()).contains("private", "no-store");
+        }
+    }
+
+    @Test
+    void anonymousVisitorCannotObtainPrivateThumbnailUrl() {
+        when(videos.findAccess(42L)).thenReturn(Optional.of(new VideoAccessDto(42L, 5L, OWNER, VideoVisibility.PRIVATE, null, LocalTime.of(0, 1))));
+        assertThatThrownBy(() -> service(storage, true).serveThumbnail(42L))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("401");
+    }
+
     private static CreateVideo upload(byte[] video, byte[] thumbnail) {
         return new CreateVideo(5L,
                 new MediaUpload(new MockMultipartFile("file", video), video.length, "video/mp4"),

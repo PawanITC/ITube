@@ -1,0 +1,35 @@
+name: CloudFront CDN acceptance demo
+on:
+  # Bootstrap this new workflow on the feature branch before it exists on the default branch.
+  push:
+    branches: [codex/cloudfront-cdn]
+    paths: ['.github/workflows/cdn-demo.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: cdn-demo
+  cancel-in-progress: false
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.CLOUDFRONT_DEMO_ROLE_ARN }}
+          aws-region: eu-west-2
+      - name: Verify both origins, shared caching, signatures, expiry, ranges and private S3
+        env:
+          CDN_BASE_URL: ${{ vars.CLOUDFRONT_BASE_URL }}
+          CDN_ASSETS_BUCKET: ${{ vars.CLOUDFRONT_ASSETS_BUCKET }}
+          CDN_MEDIA_BUCKET: itube-media-160198385987
+          CDN_SIGNING_KEY_ID: ${{ vars.CLOUDFRONT_SIGNING_KEY_ID }}
+          CDN_SIGNING_PRIVATE_KEY: ${{ secrets.CLOUDFRONT_SIGNING_PRIVATE_KEY }}
+        run: node deploy/cloudfront/demo.mjs

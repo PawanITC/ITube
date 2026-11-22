@@ -1,0 +1,23 @@
+name: CDN configuration checks
+on:
+  pull_request:
+    paths: ['deploy/cloudfront/**', '.github/workflows/cdn-*.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.4
+      - run: terraform init -backend=false -input=false
+        working-directory: deploy/cloudfront
+      - run: terraform fmt -check -recursive && terraform validate && terraform test
+        working-directory: deploy/cloudfront
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: node --check deploy/cloudfront/demo.mjs

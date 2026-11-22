@@ -104,6 +104,12 @@ spec:
             - configMapRef:
                 name: itube-config
           env:
+            - name: CDN_SIGNING_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: itube-cdn-signing
+                  key: private-key
+                  optional: true
             - name: CATALOG_SHARD_0_URL
               value: jdbc:postgresql://postgres:5432/itube
             - name: DATABASE_USERNAME

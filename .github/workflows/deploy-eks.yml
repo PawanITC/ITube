@@ -132,7 +132,9 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.context }}/Dockerfile
-          build-args: ${{ matrix.service != '' && format('SERVICE={0}', matrix.service) || '' }}
+          build-args: |
+            SERVICE=${{ matrix.service }}
+            VITE_CDN_BASE_URL=${{ matrix.image == 'itube-frontend' && vars.CLOUDFRONT_BASE_URL || '' }}
           platforms: linux/amd64
           push: true
           provenance: false
@@ -202,6 +204,45 @@ jobs:
             echo "::error title=Namespace not reachable::Cannot access namespace ${K8S_NAMESPACE} in ${EKS_CLUSTER}. Apply the infra side (namespace + EKS access entry for the deploy role) first."
             exit 1
           fi
+
+      - name: Publish CloudFront assets before rolling out the frontend
+        if: vars.CLOUDFRONT_BASE_URL != ''
+        env:
+          CDN_BASE: ${{ vars.CLOUDFRONT_BASE_URL }}
+          ASSETS_BUCKET: ${{ vars.CLOUDFRONT_ASSETS_BUCKET }}
+          SIGNING_KEY_ID: ${{ vars.CLOUDFRONT_SIGNING_KEY_ID }}
+          CDN_SIGNING_PRIVATE_KEY: ${{ secrets.CLOUDFRONT_SIGNING_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${ASSETS_BUCKET}" && test -n "${SIGNING_KEY_ID}" && test -n "${CDN_SIGNING_PRIVATE_KEY}"
+          aws ecr get-login-password --region "${AWS_REGION}" | docker login --username AWS --password-stdin "${ECR_PREFIX%%/*}"
+          image="${ECR_PREFIX}/itube-frontend:${GITHUB_SHA}"
+          docker pull "${image}"
+          container=$(docker create "${image}")
+          trap 'docker rm "${container}" >/dev/null' EXIT
+          mkdir -p "${RUNNER_TEMP}/cdn-build"
+          docker cp "${container}:/usr/share/nginx/html/." "${RUNNER_TEMP}/cdn-build/"
+          # Reusing an image built before CDN activation would silently leave assets on the app origin.
+          grep -Fq "${CDN_BASE}/assets/" "${RUNNER_TEMP}/cdn-build/index.html"
+          # Retain older hashed assets so open tabs and rollbacks keep working. Never sync --delete.
+          aws s3 sync "${RUNNER_TEMP}/cdn-build/assets/" "s3://${ASSETS_BUCKET}/assets/" \
+            --cache-control 'public,max-age=31536000,immutable' --only-show-errors
+          # Secret travels through env/stdin only, never a file or command argument.
+          python -c 'import os,json; print(json.dumps({"apiVersion":"v1","kind":"Secret","metadata":{"name":"itube-cdn-signing","namespace":os.environ["K8S_NAMESPACE"]},"type":"Opaque","stringData":{"private-key":os.environ["CDN_SIGNING_PRIVATE_KEY"]}}))' \
+            | kubectl apply -f -
+          python - <<'PY'
+          import os, pathlib, json
+          p = pathlib.Path('deploy/k8s/configmap.yaml')
+          text = p.read_text()
+          text = text.replace('CDN_MEDIA_BASE_URL: ""', 'CDN_MEDIA_BASE_URL: ' + json.dumps(os.environ['CDN_BASE']))
+          text += '\n  CDN_PROVIDER: "cloudfront"\n  CDN_SERVE_VIDEO: "true"\n'
+          text += '  CDN_SIGNING_KEY_ID: ' + json.dumps(os.environ['SIGNING_KEY_ID']) + '\n'
+          p.write_text(text)
+          patch = {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "catalog"},
+                   "spec": {"template": {"metadata": {"annotations": {
+                     "itube/cdn-config": os.environ['CDN_BASE'] + '|' + os.environ['SIGNING_KEY_ID']}}}}}
+          pathlib.Path('deploy/k8s/cdn-config-patch.json').write_text(json.dumps(patch))
+          PY
 
       - name: Create or update Secrets
         id: secret
@@ -283,6 +324,7 @@ jobs:
             args+=("${image}=${ECR_PREFIX}/${image}:${GITHUB_SHA}")
           done
           kustomize edit set image "${args[@]}"
+          if [ -f cdn-config-patch.json ]; then kustomize edit add patch --path cdn-config-patch.json; fi
           kustomize build . | grep -E '^\s+image:' | sort -u
 
       - name: Apply manifests
