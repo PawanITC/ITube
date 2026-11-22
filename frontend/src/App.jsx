@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import Header from './components/Header';
 import History from './pages/History';
 import LikedVideos from './pages/LikedVideos';
@@ -8,8 +8,8 @@ import UploadVideoPage from './components/Video/UploadVideoPage';
 import MyVideosPage from './components/Video/MyVideosPage';
 import EditVideoPage from './components/Video/EditVideoPage';
 import WatchPage from './components/Video/WatchPage';
-import ChannelGrid from './components/Channel/ChannelGrid';
 import ChannelPage from './components/Channel/ChannelPage';
+import SearchResults from './components/Search/SearchResults';
 import MembershipsPage from './components/Membership/MembershipsPage';
 import CheckoutCompletePage from './components/Membership/CheckoutCompletePage';
 import Auth from './pages/Auth';
@@ -47,10 +47,11 @@ function App() {
   const [videos, setVideos] = useState([]);
   const [videosLoading, setVideosLoading] = useState(true);
   const [videosError, setVideosError] = useState('');
-  const [searchMode, setSearchMode] = useState('videos');
+  const [searchFilter, setSearchFilter] = useState('all');
   const [channelResults, setChannelResults] = useState([]);
   const [channelsLoading, setChannelsLoading] = useState(false);
   const [channelsError, setChannelsError] = useState('');
+  const searchRequest = useRef(0);
 
   // Restore an existing server session after a page reload so signed-in-only UI (like My Videos) shows.
   useEffect(() => {
@@ -90,27 +91,33 @@ function App() {
     return videos.filter(video => !needle || `${video.title} ${video.channelName}`.toLowerCase().includes(needle));
   }, [search, videos]);
 
-  async function handleSearch(query, type) {
-    setSearch(query);
-    setSearchMode(type);
+  async function handleSearch(query) {
+    const trimmed = query.trim();
+    const requestId = ++searchRequest.current;
+    setSearch(trimmed);
+    setSearchFilter('all');
     setChannelsError('');
+    setChannelResults([]);
     if (route.page !== 'home') {
       window.history.pushState({}, '', '/');
       setRoute({ page: 'home', videoId: null });
     }
-    if (type === 'channels') {
+    // Videos are filtered client-side from the feed; channels come from the search endpoint.
+    if (trimmed) {
       setChannelsLoading(true);
       try {
-        const params = new URLSearchParams({ q: query });
+        const params = new URLSearchParams({ q: trimmed });
         const response = await fetch(`/api/channels/search?${params}`);
         if (!response.ok) throw new Error('Could not search channels.');
-        setChannelResults(await response.json());
+        const results = await response.json();
+        if (requestId === searchRequest.current) setChannelResults(results);
       } catch (error) {
-        setChannelsError(error.message || 'Could not search channels.');
-        setChannelResults([]);
+        if (requestId === searchRequest.current) setChannelsError(error.message || 'Could not search channels.');
       } finally {
-        setChannelsLoading(false);
+        if (requestId === searchRequest.current) setChannelsLoading(false);
       }
+    } else {
+      setChannelsLoading(false);
     }
   }
 
@@ -133,6 +140,8 @@ function App() {
   }
 
   function returnHome() {
+    setSearch('');
+    setSearchFilter('all');
     window.history.pushState({}, '', '/');
     setRoute({ page: 'home', videoId: null });
   }
@@ -193,7 +202,7 @@ function App() {
 
   return (
     <div className="app-shell" id="home">
-      {route.page !== 'auth' && <Header session={activeSession} onSearch={handleSearch} onCreatePage={openUploadPage} onSessionStarted={setActiveSession} onSelectChannel={openChannel} onOpenAuth={openAuth} onSignOut={handleSignOut} />}
+      {route.page !== 'auth' && <Header session={activeSession} onHome={returnHome} onSearch={handleSearch} onCreatePage={openUploadPage} onSelectChannel={openChannel} onOpenAuth={openAuth} onSignOut={handleSignOut} />}
       {route.page === 'auth' ? (
         <Auth key={route.mode} mode={route.mode} onSignedIn={handleSignedIn} onSwitchMode={openAuth} onHome={returnHome} />
       ) : route.page === 'upload' ? (
@@ -201,17 +210,17 @@ function App() {
       ) : route.page === 'edit-video' ? (
         <main className="upload-main"><EditVideoPage key={route.videoId} videoId={route.videoId} onBack={openMyVideos} onDeleted={openMyVideos} /></main>
       ) : route.page === 'watch' ? (
-        <WatchPage videoId={route.videoId} videos={route.video ? [route.video, ...videos.filter(video => video.videoId !== route.videoId)] : videos} videosLoading={route.video ? false : videosLoading} videosError={route.video ? '' : videosError} session={activeSession} onSelectVideo={openVideo} onSelectChannel={openChannel} onHome={returnHome} onOpenMemberships={openMemberships} />
+        <WatchPage videoId={route.videoId} videos={route.video ? [route.video, ...videos.filter(video => video.videoId !== route.videoId)] : videos} videosLoading={route.video ? false : videosLoading} videosError={route.video ? '' : videosError} session={activeSession} onSelectVideo={openVideo} onSelectChannel={openChannel} onOpenMemberships={openMemberships} />
       ) : route.page === 'memberships' ? (
-        <MembershipsPage onHome={returnHome} onOpenChannel={openChannel} />
+        <MembershipsPage onOpenChannel={openChannel} />
       ) : route.page === 'demo' ? (
-        <Suspense fallback={<main className="demo-page"><p>Loading…</p></main>}><Demo onHome={returnHome} /></Suspense>
+        <Suspense fallback={<main className="demo-page"><p>Loading…</p></main>}><Demo /></Suspense>
       ) : route.page === 'checkout-complete' ? (
         <CheckoutCompletePage onOpenChannel={openChannel} onOpenMemberships={openMemberships} />
       ) : route.page === 'channel' ? (
-        <ChannelPage channelId={route.channelId} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} onOpenMemberships={openMemberships} />
+        <ChannelPage channelId={route.channelId} onSelectVideo={openVideo} onSelectChannel={openChannel} onOpenMemberships={openMemberships} />
       ) : (
-        <><Sidebar onOpenLikedVideos={openLikedVideos} activePage={route.page === 'liked-videos' ? 'Liked videos' : route.page === 'history' ? 'History' : route.page === 'my-videos' ? 'My Videos' : 'Home'} onOpenHistory={openHistory} onOpenMyVideos={openMyVideos} onHome={returnHome} session={activeSession} onSelectChannel={openChannel} onOpenMemberships={openMemberships} /><main className="main-content"><nav className="mobile-library-nav" aria-label="Mobile library"><a href="/" onClick={event => { event.preventDefault(); returnHome(); }} aria-current={route.page === 'home' ? 'page' : undefined}>Home</a><a href="/history" onClick={event => { event.preventDefault(); openHistory(); }} aria-current={route.page === 'history' ? 'page' : undefined}>History</a><a href="/liked-videos" onClick={event => { event.preventDefault(); openLikedVideos(); }} aria-current={route.page === 'liked-videos' ? 'page' : undefined}>Liked videos</a>{activeSession && <a href="/my-videos" onClick={event => { event.preventDefault(); openMyVideos(); }} aria-current={route.page === 'my-videos' ? 'page' : undefined}>My Videos</a>}</nav>{route.page === 'liked-videos' ? <LikedVideos key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : route.page === 'history' ? <History key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} /> : route.page === 'my-videos' ? <MyVideosPage onEditVideo={openEditVideo} /> : <div className="feed-content">{searchMode === 'channels' ? <ChannelGrid channels={channelResults} loading={channelsLoading} error={channelsError} query={search} onSelectChannel={openChannel} /> : <VideoGrid videos={visibleVideos} loading={videosLoading} error={videosError} onSelectVideo={openVideo} onSelectChannel={openChannel} />}</div>}</main></>
+        <><Sidebar onOpenLikedVideos={openLikedVideos} activePage={route.page === 'liked-videos' ? 'Liked videos' : route.page === 'history' ? 'History' : route.page === 'my-videos' ? 'My Videos' : 'Home'} onOpenHistory={openHistory} onOpenMyVideos={openMyVideos} onHome={returnHome} session={activeSession} onSelectChannel={openChannel} onOpenMemberships={openMemberships} /><main className="main-content"><nav className="mobile-library-nav" aria-label="Mobile library"><a href="/" onClick={event => { event.preventDefault(); returnHome(); }} aria-current={route.page === 'home' ? 'page' : undefined}>Home</a><a href="/history" onClick={event => { event.preventDefault(); openHistory(); }} aria-current={route.page === 'history' ? 'page' : undefined}>History</a><a href="/liked-videos" onClick={event => { event.preventDefault(); openLikedVideos(); }} aria-current={route.page === 'liked-videos' ? 'page' : undefined}>Liked videos</a>{activeSession && <a href="/my-videos" onClick={event => { event.preventDefault(); openMyVideos(); }} aria-current={route.page === 'my-videos' ? 'page' : undefined}>My Videos</a>}</nav>{route.page === 'liked-videos' ? <LikedVideos key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : route.page === 'history' ? <History key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} /> : route.page === 'my-videos' ? <MyVideosPage onEditVideo={openEditVideo} /> : <div className="feed-content">{search ? <SearchResults query={search} filter={searchFilter} onFilterChange={setSearchFilter} videos={visibleVideos} videosLoading={videosLoading} videosError={videosError} channels={channelResults} channelsLoading={channelsLoading} channelsError={channelsError} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : <VideoGrid videos={visibleVideos} loading={videosLoading} error={videosError} onSelectVideo={openVideo} onSelectChannel={openChannel} />}</div>}</main></>
       )}
     </div>
   );
