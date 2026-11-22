@@ -2,7 +2,6 @@ package ITubeBackend.bdd;
 
 import ITubeBackend.common.client.IdentityClient;
 import ITubeBackend.entities.VideoVisibility;
-import ITubeBackend.security.CurrentUser;
 import ITubeBackend.support.FakeCatalog;
 import io.cucumber.java.Before;
 import io.cucumber.java.en.Given;
@@ -10,7 +9,9 @@ import io.cucumber.java.en.Then;
 import io.cucumber.java.en.When;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
+import ITubeBackend.security.AccessTokens;
+import ITubeBackend.security.SignedInUser;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import tools.jackson.databind.JsonNode;
@@ -36,9 +37,10 @@ public class EngagementSteps {
     @Autowired private ObjectMapper json;
     @Autowired private FakeCatalog catalog;
     @Autowired private IdentityClient identity;
+    @Autowired private AccessTokens tokens;
 
     private final Map<String, Long> videos = new HashMap<>();
-    private final Map<String, MockHttpSession> viewers = new HashMap<>();
+    private final Map<String, RequestPostProcessor> viewers = new HashMap<>();
     private MvcResult last;
 
     @Before
@@ -58,11 +60,14 @@ public class EngagementSteps {
 
     @Given("a signed-in viewer {string}")
     public void aSignedInViewer(String name) {
-        MockHttpSession session = new MockHttpSession();
         // Each scenario gets fresh user ids: the in-memory stores live for the whole run
-        session.setAttribute(CurrentUser.USER_ID, ThreadLocalRandom.current().nextLong(1_000_000, 900_000_000));
-        session.setAttribute(CurrentUser.DISPLAY_NAME, name);
-        viewers.put(name, session);
+        long userId = ThreadLocalRandom.current().nextLong(1_000_000, 900_000_000);
+        // A real signed access token, carrying the display name like the one identity-service issues
+        String token = tokens.issue(new SignedInUser(userId, null, name));
+        viewers.put(name, request -> {
+            request.addHeader("Authorization", "Bearer " + token);
+            return request;
+        });
     }
 
     @Given("catalog-service is down")
@@ -73,7 +78,7 @@ public class EngagementSteps {
     @Given("{string} has watched {string}")
     @When("{string} watches {string}")
     public void watches(String viewer, String title) throws Exception {
-        last = mvc.perform(post("/api/history").session(viewers.get(viewer)).contentType(MediaType.APPLICATION_JSON)
+        last = mvc.perform(post("/api/history").with(viewers.get(viewer)).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"videoId\":" + videos.get(title) + "}")).andReturn();
         assertThat(last.getResponse().getStatus()).isEqualTo(201);
     }
@@ -81,17 +86,17 @@ public class EngagementSteps {
     @Given("{string} has liked {string}")
     @When("{string} likes {string}")
     public void likes(String viewer, String title) throws Exception {
-        last = mvc.perform(put("/api/liked-videos/" + videos.get(title)).session(viewers.get(viewer))).andReturn();
+        last = mvc.perform(put("/api/liked-videos/" + videos.get(title)).with(viewers.get(viewer))).andReturn();
     }
 
     @When("{string} unlikes {string}")
     public void unlikes(String viewer, String title) throws Exception {
-        last = mvc.perform(delete("/api/liked-videos/" + videos.get(title)).session(viewers.get(viewer))).andReturn();
+        last = mvc.perform(delete("/api/liked-videos/" + videos.get(title)).with(viewers.get(viewer))).andReturn();
     }
 
     @When("{string} comments {string} on {string}")
     public void comments(String viewer, String text, String title) throws Exception {
-        last = mvc.perform(post("/api/videos/" + videos.get(title) + "/comments").session(viewers.get(viewer))
+        last = mvc.perform(post("/api/videos/" + videos.get(title) + "/comments").with(viewers.get(viewer))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"content\":\"" + text + "\"}")).andReturn();
         assertThat(last.getResponse().getStatus()).isEqualTo(201);
     }
@@ -141,9 +146,9 @@ public class EngagementSteps {
         verify(identity, never()).account(any());
     }
 
-    private JsonNode getJson(String path, MockHttpSession session) throws Exception {
+    private JsonNode getJson(String path, RequestPostProcessor session) throws Exception {
         var request = get(path);
-        if (session != null) request.session(session);
+        if (session != null) request.with(session);
         MvcResult result = mvc.perform(request).andReturn();
         assertThat(result.getResponse().getStatus()).as("GET " + path).isEqualTo(200);
         return json.readTree(result.getResponse().getContentAsString());

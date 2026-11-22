@@ -1,4 +1,4 @@
--- Identity domain (schema "identity"): accounts and credentials. Sessions are in Redis.
+-- Identity domain (schema "identity"): accounts, credentials, refresh tokens and linked Cognito identities.
 -- Runs on every start of identity-service, so every statement must be idempotent.
 CREATE SCHEMA IF NOT EXISTS identity;
 -- Databases created before the domain split kept accounts in "public"
@@ -11,3 +11,31 @@ CREATE TABLE IF NOT EXISTS identity.accounts (
     email VARCHAR(320) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL
 );
+
+-- Accounts that only sign in through an identity provider (Cognito) have no password
+ALTER TABLE identity.accounts ALTER COLUMN password_hash DROP NOT NULL;
+
+-- Refresh tokens (docs/AUTH.md). Only a SHA-256 of the token is stored. Each sign-in starts a family; every refresh
+-- marks the old token used and adds a new one to the family. A used token presented again (outside a short grace
+-- period for parallel tabs) means it was copied: the whole family is revoked.
+CREATE TABLE IF NOT EXISTS identity.refresh_tokens (
+    token_hash VARCHAR(64) PRIMARY KEY,
+    family_id UUID NOT NULL,
+    user_id BIGINT NOT NULL REFERENCES identity.accounts (user_id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    used_at TIMESTAMP WITH TIME ZONE
+);
+CREATE INDEX IF NOT EXISTS refresh_tokens_family_idx ON identity.refresh_tokens (family_id);
+CREATE INDEX IF NOT EXISTS refresh_tokens_expires_idx ON identity.refresh_tokens (expires_at);
+
+-- Sign-in through an external identity provider: (provider, the provider's user id) -> our account
+CREATE TABLE IF NOT EXISTS identity.external_identities (
+    provider VARCHAR(32) NOT NULL,
+    subject VARCHAR(255) NOT NULL,
+    user_id BIGINT NOT NULL REFERENCES identity.accounts (user_id) ON DELETE CASCADE,
+    email VARCHAR(320),
+    linked_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    PRIMARY KEY (provider, subject)
+);
+CREATE INDEX IF NOT EXISTS external_identities_user_idx ON identity.external_identities (user_id);

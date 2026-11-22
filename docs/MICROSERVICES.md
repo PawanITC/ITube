@@ -33,12 +33,13 @@ flowchart LR
     pay --> stripe[Stripe]
     cat <-- Kafka --> tw[transcode-worker<br/>FFmpeg]
     tw --> s3
-    id & cat & eng & pay --- redis[(Redis<br/>sessions)]
+    pay --- redis[(Redis<br/>rate limits)]
+    id -. JWKS public keys .-> cat & eng & pay
 ```
 
 | Service | Port (local) | Owns | Public API | Scales by |
 |---|---|---|---|---|
-| **identity-service** | 8081 | accounts, passwords (Postgres schema `identity`) | `/api/auth/**`, `/api/session/**` | CPU (BCrypt) |
+| **identity-service** | 8081 | accounts, passwords, refresh tokens, Cognito links (Postgres schema `identity`); signs access tokens | `/api/auth/**`, `/api/session/**` | CPU (BCrypt) |
 | **catalog-service** | 8082 | channels, subscriptions, video metadata, uploads, playback (Postgres, **sharded**), the media bucket | `/api/channels/**`, `/api/videos/**` (not comments), `/api/uploads/**` | replicas + caches + shards |
 | **engagement-service** | 8083 | watch history, likes, comments (ScyllaDB) | `/api/history/**`, `/api/liked-videos/**`, `/api/videos/{id}/comments` | replicas + Scylla nodes |
 | **payments-service** | 8084 | Stripe customers, membership tiers, memberships, payments (Postgres schema `payments`) | `/api/memberships/**`, `/api/payments/**`, `/api/webhooks/stripe` | rarely needed |
@@ -46,7 +47,7 @@ flowchart LR
 | **gateway** | 8080 | nothing | routes all of the above | stateless replicas |
 
 All code lives in one Maven build ([backend/pom.xml](../backend/pom.xml)) with two shared libraries:
-`common` (session user, service clients with resilience, Caffeine, Kafka retries, load shedding) and `storage`
+`common` (signed-in user from the access token, service clients with resilience, Caffeine, Kafka retries, load shedding) and `storage`
 (S3-compatible object storage). Each service is still its own jar, image and Kubernetes Deployment.
 
 ## Why split it up
@@ -96,15 +97,13 @@ Events carry ids and storage keys, never media bytes. Every consumer is **idempo
 nothing), failed messages are retried with backoff and then parked on `<topic>-dlt` (dead-letter topic), and a
 sweeper re-sends transcode jobs that got lost. Details in [RESILIENCE-AND-SCALE.md](RESILIENCE-AND-SCALE.md).
 
-### 3. A shared session for "who is signed in"
+### 3. Signed access tokens for "who is signed in"
 
-Signing in (identity-service) stores `userId`, `channelId` and the display name in a Redis-backed session. Every
-service uses Spring Session with the same Redis and cookie, so every service knows the user without asking
-identity-service. Comments, for example, are signed with the name from the session.
-
-> Production systems often use signed tokens (JWT) instead, so that not even Redis is needed per request. The
-> shared session was kept because it needed no frontend change; [CurrentUser](../backend/common/src/main/java/ITubeBackend/security/CurrentUser.java)
-> is the only class that would change.
+Signing in (identity-service) sets a short-lived access token: a JWT signed with identity's private key, holding
+`userId`, `channelId` and the display name. Every service verifies the signature with identity's public keys
+(fetched once from its JWKS and cached), so no request reads Redis or calls identity-service to find out who the user
+is. Comments, for example, are signed with the name from the token. A refresh token, which only identity-service
+reads, renews the access token every 15 minutes. Details, including "Continue with Cognito": [AUTH.md](AUTH.md).
 
 ## No transaction across services
 

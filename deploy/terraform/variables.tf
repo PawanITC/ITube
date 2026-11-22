@@ -127,3 +127,30 @@ variable "media_bucket_cors_origins" {
   type        = list(string)
   default     = ["https://itube.fun", "http://localhost:3000"]
 }
+
+variable "cognito_domain_prefix" {
+  description = "Prefix of the Cognito hosted login domain (<prefix>.auth.<region>.amazoncognito.com); globally unique. Null = itube-<account id>."
+  type        = string
+  default     = null
+}
+
+variable "cognito_callback_urls" {
+  description = "Where Cognito may send the browser back after sign-in: identity-service's callback on each site."
+  type        = list(string)
+  default = [
+    "https://itube.fun/api/auth/oauth/cognito/callback",
+    "http://localhost:3000/api/auth/oauth/cognito/callback",
+  ]
+}
+
+variable "cognito_logout_urls" {
+  description = "Where Cognito may send the browser after signing out of the hosted login page."
+  type        = list(string)
+  default     = ["https://itube.fun/", "http://localhost:3000/"]
+}
+
+variable "cognito_deletion_protection" {
+  description = "Refuse to delete the user pool (and its users) on terraform destroy."
+  type        = bool
+  default     = true
+}

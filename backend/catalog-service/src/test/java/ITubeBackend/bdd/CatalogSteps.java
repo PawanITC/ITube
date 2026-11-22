@@ -5,7 +5,8 @@ import ITubeBackend.common.client.DownstreamUnavailableException;
 import ITubeBackend.common.client.PaymentsClient;
 import ITubeBackend.dto.entitlement.PlaybackDecision;
 import ITubeBackend.repository.VideoRepository;
-import ITubeBackend.security.CurrentUser;
+import ITubeBackend.security.AccessTokens;
+import ITubeBackend.security.SignedInUser;
 import ITubeBackend.sharding.ShardContext;
 import ITubeBackend.sharding.ShardIds;
 import ITubeBackend.sharding.ShardMap;
@@ -17,9 +18,9 @@ import io.cucumber.java.en.Then;
 import io.cucumber.java.en.When;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.MvcResult;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -45,12 +46,13 @@ public class CatalogSteps {
     @Autowired private MockMvc mvc;
     @Autowired private ObjectMapper json;
     @Autowired private ShardMap shardMap;
+    @Autowired private AccessTokens tokens;
     @Autowired private Shards shards;
     @Autowired private VideoRepository videoRepository;
     @Autowired private CatalogCaches caches;
     @Autowired private PaymentsClient payments;
 
-    private record Person(long userId, Long channelId, MockHttpSession session) {
+    private record Person(long userId, Long channelId, RequestPostProcessor session) {
     }
 
     private final Map<String, Person> people = new HashMap<>();
@@ -114,7 +116,7 @@ public class CatalogSteps {
     @When("{string} makes {string} private")
     public void makesPrivate(String creator, String title) throws Exception {
         int status = mvc.perform(patch("/api/videos/" + videos.get(title) + "/visibility")
-                        .session(people.get(creator).session()).contentType(MediaType.APPLICATION_JSON)
+                        .with(people.get(creator).session()).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"visibility\":\"PRIVATE\"}"))
                 .andReturn().getResponse().getStatus();
         assertThat(status).isEqualTo(204);
@@ -129,7 +131,7 @@ public class CatalogSteps {
     public void subscribesTo(String viewer, String first, String second) throws Exception {
         for (String creator : List.of(first, second)) {
             int status = mvc.perform(post("/api/channels/" + people.get(creator).channelId() + "/subscriptions")
-                    .session(people.get(viewer).session())).andReturn().getResponse().getStatus();
+                    .with(people.get(viewer).session())).andReturn().getResponse().getStatus();
             assertThat(status).isEqualTo(201);
         }
     }
@@ -220,7 +222,7 @@ public class CatalogSteps {
     @Then("{string} may play {string}")
     public void mayPlay(String viewer, String title) throws Exception {
         MvcResult result = mvc.perform(get("/api/videos/" + videos.get(title) + "/playback-authorisation")
-                .session(people.get(viewer).session())).andReturn();
+                .with(people.get(viewer).session())).andReturn();
         assertThat(result.getResponse().getStatus()).isEqualTo(200);
         assertThat(json.readTree(result.getResponse().getContentAsString()).get("allowed").asBoolean()).isTrue();
     }
@@ -243,12 +245,13 @@ public class CatalogSteps {
         return candidate;
     }
 
-    private static MockHttpSession session(long userId, Long channelId, String name) {
-        MockHttpSession session = new MockHttpSession();
-        session.setAttribute(CurrentUser.USER_ID, userId);
-        if (channelId != null) session.setAttribute(CurrentUser.CHANNEL_ID, channelId);
-        session.setAttribute(CurrentUser.DISPLAY_NAME, name);
-        return session;
+    /** Requests signed in as this person: a real access token, verified by the authentication filter. */
+    private RequestPostProcessor session(long userId, Long channelId, String name) {
+        String token = tokens.issue(new SignedInUser(userId, channelId, name));
+        return request -> {
+            request.addHeader("Authorization", "Bearer " + token);
+            return request;
+        };
     }
 
     private void upload(String creator, String title, String visibility, String tier) throws Exception {
@@ -257,7 +260,7 @@ public class CatalogSteps {
                 .param("title", title + " " + run)
                 .param("duration", "00:01:00")
                 .param("visibility", visibility)
-                .session(people.get(creator).session());
+                .with(people.get(creator).session());
         if (tier != null) request.param("requiredTierLevel", tier);
         assertThat(mvc.perform(request).andReturn().getResponse().getStatus()).isEqualTo(201);
         for (JsonNode video : getJson("/api/videos/mine", people.get(creator).session())) {
@@ -268,7 +271,7 @@ public class CatalogSteps {
 
     private int playbackStatus(String viewer, String title) throws Exception {
         return mvc.perform(get("/api/videos/" + videos.get(title) + "/playback-authorisation")
-                .session(people.get(viewer).session())).andReturn().getResponse().getStatus();
+                .with(people.get(viewer).session())).andReturn().getResponse().getStatus();
     }
 
     private List<String> feedTitles() throws Exception {
@@ -278,9 +281,9 @@ public class CatalogSteps {
         return titles;
     }
 
-    private JsonNode getJson(String path, MockHttpSession session) throws Exception {
+    private JsonNode getJson(String path, RequestPostProcessor session) throws Exception {
         var request = get(path);
-        if (session != null) request.session(session);
+        if (session != null) request.with(session);
         MvcResult result = mvc.perform(request).andReturn();
         assertThat(result.getResponse().getStatus()).as("GET " + path).isEqualTo(200);
         return json.readTree(result.getResponse().getContentAsString());

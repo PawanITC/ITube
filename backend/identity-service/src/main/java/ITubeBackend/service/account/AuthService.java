@@ -7,7 +7,9 @@ import ITubeBackend.dto.accounts.LoginRequest;
 import ITubeBackend.dto.accounts.RegisterRequest;
 import ITubeBackend.dto.channel.ChannelDto;
 import ITubeBackend.entities.AccountEntity;
+import ITubeBackend.entities.ExternalIdentityEntity;
 import ITubeBackend.repository.AccountRepository;
+import ITubeBackend.repository.ExternalIdentityRepository;
 import ITubeBackend.security.PasswordHasher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,8 +19,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Clock;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 /**
  * Register and sign in. Accounts are ours (identity schema); channels belong to catalog-service.
@@ -40,16 +45,21 @@ public class AuthService {
     private final AccountEvents events;
     private final PasswordHasher passwordHasher;
     private final TransactionTemplate transactions;
+    private final ExternalIdentityRepository externalIdentities;
+    private final Clock clock;
     // Compared against when the email is unknown, so a wrong email takes as long as a wrong password.
     private final String dummyHash;
 
     public AuthService(AccountRepository accountRepository, CatalogClient catalog, AccountEvents events,
-                       PasswordHasher passwordHasher, TransactionTemplate transactions) {
+                       PasswordHasher passwordHasher, TransactionTemplate transactions,
+                       ExternalIdentityRepository externalIdentities, Clock clock) {
         this.accountRepository = accountRepository;
         this.catalog = catalog;
         this.events = events;
         this.passwordHasher = passwordHasher;
         this.transactions = transactions;
+        this.externalIdentities = externalIdentities;
+        this.clock = clock;
         this.dummyHash = passwordHasher.hash("itube-timing-equaliser");
     }
 
@@ -58,7 +68,7 @@ public class AuthService {
     }
 
     public static String displayName(AccountEntity account) {
-        return account.getFirstname() + " " + account.getLastname();
+        return (account.getFirstname() + " " + account.getLastname()).trim();
     }
 
     public AuthResponse register(RegisterRequest request) {
@@ -84,6 +94,56 @@ public class AuthService {
 
         String channelName = request.channelName() == null || request.channelName().isBlank()
                 ? displayName(account) : request.channelName().trim();
+        return withNewChannel(account, channelName);
+    }
+
+    /**
+     * Sign-in through an external identity provider (Cognito). The provider's user id is linked to an ITube account
+     * the first time: the account with the same email if there is one, otherwise a new account (without a password)
+     * and channel. Only verified emails are trusted, otherwise anyone could take over an account by signing up at the
+     * provider with someone else's address.
+     */
+    public AuthResponse externalSignIn(ExternalProfile profile) {
+        ExternalIdentityEntity.Key key = new ExternalIdentityEntity.Key(profile.provider(), profile.subject());
+        Optional<AccountEntity> linked = externalIdentities.findById(key).flatMap(link -> accountRepository.findById(link.getUserId()));
+        if (linked.isPresent()) return withPrimaryChannel(linked.get());
+        if (!profile.emailVerified() || profile.email() == null || profile.email().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Verify your email address first");
+        }
+        String email = normaliseEmail(profile.email());
+        AccountEntity[] created = new AccountEntity[1];
+        AccountEntity account;
+        try {
+            account = transactions.execute(status -> {
+                AccountEntity existing = accountRepository.findEntityByEmail(email).orElseGet(() -> {
+                    AccountEntity fresh = new AccountEntity();
+                    fresh.setFirstname(limit(profile.firstname(), 100));
+                    fresh.setLastname(limit(profile.lastname(), 100));
+                    fresh.setEmail(email);
+                    created[0] = accountRepository.saveAndFlush(fresh);
+                    return created[0];
+                });
+                externalIdentities.saveAndFlush(new ExternalIdentityEntity(key, existing.getUserId(), email,
+                        OffsetDateTime.now(clock)));
+                return existing;
+            });
+        } catch (DataIntegrityViolationException race) {
+            // The same person signing in twice at once: the other request linked (or created) the account
+            account = externalIdentities.findById(key).flatMap(link -> accountRepository.findById(link.getUserId()))
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Try signing in again"));
+            return withPrimaryChannel(account);
+        }
+        log.info("Linked {} user to ITube user {}{}", profile.provider(), account.getUserId(),
+                created[0] != null ? " (new account)" : "");
+        return created[0] != null ? withNewChannel(account, displayName(account)) : withPrimaryChannel(account);
+    }
+
+    /** What an identity provider tells us about a user (from its verified ID token). */
+    public record ExternalProfile(String provider, String subject, String email, boolean emailVerified,
+                                  String firstname, String lastname) {
+    }
+
+    private AuthResponse withNewChannel(AccountEntity account, String channelName) {
         ChannelDto channel = null;
         try {
             channel = catalog.ensureChannel(account.getUserId(), channelName);
@@ -96,9 +156,19 @@ public class AuthService {
         return toResponse(account, channel == null ? null : channel.channelId(), channelName);
     }
 
+    private static String limit(String value, int max) {
+        String trimmed = value == null ? "" : value.trim();
+        return trimmed.length() <= max ? trimmed : trimmed.substring(0, max);
+    }
+
     public AuthResponse login(LoginRequest request) {
         AccountEntity account = accountRepository.findEntityByEmail(normaliseEmail(request.email())).orElse(null);
         if (account == null) {
+            passwordHasher.matches(request.password(), dummyHash);
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, INVALID_LOGIN);
+        }
+        if (account.getPasswordHash() == null) {
+            // Cognito-only account: same timing and answer as a wrong password
             passwordHasher.matches(request.password(), dummyHash);
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, INVALID_LOGIN);
         }

@@ -94,7 +94,7 @@ public class LikedVideoService {
     }
 
     private static void requireUser(Long userId) {
-        if (userId == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Start a session first");
+        if (userId == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sign in first");
     }
 
     private void requireVisibleVideo(Long userId, Long videoId) {

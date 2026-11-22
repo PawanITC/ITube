@@ -2,7 +2,8 @@
 # Build the images with the tag `local` first, e.g.:
 #   docker build --build-arg SERVICE=catalog-service -t itube-catalog:local backend
 #   docker build -t itube-gateway:local gateway
-# The Secret itube-secrets needs db-password, playback-signing-key and storage-secret-key (SeaweedFS).
+# The Secret itube-secrets needs db-password, playback-signing-key, storage-secret-key (SeaweedFS) and
+# jwt-private-key (openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:

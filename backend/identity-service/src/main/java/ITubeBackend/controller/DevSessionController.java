@@ -1,13 +1,14 @@
 package ITubeBackend.controller;
 
+import ITubeBackend.auth.SignIn;
 import ITubeBackend.dto.accounts.DevSessionDto;
 import ITubeBackend.entities.AccountEntity;
 import ITubeBackend.security.CurrentUser;
+import ITubeBackend.security.SignedInUser;
 import ITubeBackend.service.account.AccountService;
 import ITubeBackend.service.account.AuthService;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpSession;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,36 +22,38 @@ import java.util.Map;
 @RestController
 public class DevSessionController {
     private final AccountService accountService;
+    private final SignIn signIn;
 
-    public DevSessionController(AccountService accountService) {
+    public DevSessionController(AccountService accountService, SignIn signIn) {
         this.accountService = accountService;
+        this.signIn = signIn;
     }
 
     // REMOVE LATER - UNTIL LOGIN IS COMPLETE
     @PostMapping("/api/session/dev")
-    public DevSessionDto createDevSession(HttpServletRequest request) {
-        return signIn(request, accountService.createDevSession());
+    public DevSessionDto createDevSession(HttpServletResponse response) {
+        return signIn(response, accountService.createDevSession());
     }
 
     // REMOVE LATER - UNTIL LOGIN IS COMPLETE. Fixed "Demo Viewer" account used by the /demo page.
     @PostMapping("/api/session/dev/viewer")
-    public DevSessionDto createDevViewerSession(HttpServletRequest request) {
-        return signIn(request, accountService.createDevViewerSession());
+    public DevSessionDto createDevViewerSession(HttpServletResponse response) {
+        return signIn(response, accountService.createDevViewerSession());
     }
 
     @GetMapping("/api/session/current")
-    public Map<String, Long> getCurrentSessionDetails(HttpSession session) {
-        Long userId = CurrentUser.find(session)
+    public Map<String, Long> getCurrentSessionDetails() {
+        SignedInUser user = CurrentUser.user()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "No active user session"));
-        if (!(session.getAttribute(CurrentUser.CHANNEL_ID) instanceof Long channelId)) {
+        if (user.channelId() == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "No active channel session");
         }
-        return Map.of("userId", userId, "channelId", channelId);
+        return Map.of("userId", user.userId(), "channelId", user.channelId());
     }
 
-    private DevSessionDto signIn(HttpServletRequest request, DevSessionDto devSession) {
+    private DevSessionDto signIn(HttpServletResponse response, DevSessionDto devSession) {
         AccountEntity account = accountService.requireAccount(devSession.userId());
-        CurrentUser.signIn(request, devSession.userId(), devSession.channelId(), AuthService.displayName(account));
+        signIn.start(response, devSession.userId(), devSession.channelId(), AuthService.displayName(account));
         return devSession;
     }
 }

@@ -12,7 +12,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.mock.web.MockHttpSession;
+import ITubeBackend.security.AccessTokens;
+import ITubeBackend.security.AuthenticationConfig;
+import ITubeBackend.security.SignedInUser;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -52,7 +55,9 @@ class LikedVideoTests {
     private LikeStore likeStore;
 
     private MockMvc mvc;
-    private MockHttpSession session;
+    private RequestPostProcessor session;
+    @Autowired
+    private AccessTokens tokens;
 
     private Long viewerId;
     private Long ownerId;
@@ -62,27 +67,31 @@ class LikedVideoTests {
         viewerId = USERS.incrementAndGet();
         ownerId = USERS.incrementAndGet();
         catalog.reset();
-        mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        mvc = MockMvcBuilders.standaloneSetup(controller)
+                .addFilters(new AuthenticationConfig.AuthenticationFilter(tokens)).build();
         // Likes are in the in-memory engagement store (ScyllaDB in production), not the rolled-back database
         ((InMemoryEngagementStores.Resettable) likeStore).reset();
-        session = new MockHttpSession();
-        session.setAttribute("userId", viewerId);
+        String token = tokens.issue(new SignedInUser(viewerId, null, null));
+        session = request -> {
+            request.addHeader("Authorization", "Bearer " + token);
+            return request;
+        };
     }
 
     @Test
     void apiSupportsLikeStatusListAndIdempotentUnlike() throws Exception {
         FakeCatalog.Video video = video(ownerId, "API video", VideoVisibility.PUBLIC);
         String path = "/api/liked-videos/" + video.getVideoId();
-        mvc.perform(get(path).session(session)).andExpect(status().isOk()).andExpect(jsonPath("$.liked").value(false));
-        mvc.perform(put(path).session(session)).andExpect(status().isNoContent());
-        mvc.perform(put(path).session(session)).andExpect(status().isNoContent());
-        mvc.perform(get(path).session(session)).andExpect(jsonPath("$.liked").value(true));
-        mvc.perform(get("/api/liked-videos").session(session))
+        mvc.perform(get(path).with(session)).andExpect(status().isOk()).andExpect(jsonPath("$.liked").value(false));
+        mvc.perform(put(path).with(session)).andExpect(status().isNoContent());
+        mvc.perform(put(path).with(session)).andExpect(status().isNoContent());
+        mvc.perform(get(path).with(session)).andExpect(jsonPath("$.liked").value(true));
+        mvc.perform(get("/api/liked-videos").with(session))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].video.title").value("API video"));
-        mvc.perform(delete(path).session(session)).andExpect(status().isNoContent());
-        mvc.perform(delete(path).session(session)).andExpect(status().isNoContent());
-        mvc.perform(get(path).session(session)).andExpect(jsonPath("$.liked").value(false));
+        mvc.perform(delete(path).with(session)).andExpect(status().isNoContent());
+        mvc.perform(delete(path).with(session)).andExpect(status().isNoContent());
+        mvc.perform(get(path).with(session)).andExpect(jsonPath("$.liked").value(false));
     }
 
     @Test
@@ -96,11 +105,11 @@ class LikedVideoTests {
     @Test
     void apiRejectsInvalidIdsAndPageParameters() throws Exception {
         for (String query : java.util.List.of("page=-1", "size=0", "size=101", "page=abc")) {
-            mvc.perform(get("/api/liked-videos?" + query).session(session)).andExpect(status().isBadRequest());
+            mvc.perform(get("/api/liked-videos?" + query).with(session)).andExpect(status().isBadRequest());
         }
-        mvc.perform(put("/api/liked-videos/0").session(session)).andExpect(status().isBadRequest());
-        mvc.perform(delete("/api/liked-videos/-1").session(session)).andExpect(status().isBadRequest());
-        mvc.perform(get("/api/liked-videos/abc").session(session)).andExpect(status().isBadRequest());
+        mvc.perform(put("/api/liked-videos/0").with(session)).andExpect(status().isBadRequest());
+        mvc.perform(delete("/api/liked-videos/-1").with(session)).andExpect(status().isBadRequest());
+        mvc.perform(get("/api/liked-videos/abc").with(session)).andExpect(status().isBadRequest());
     }
 
     @Test

@@ -5,7 +5,6 @@ import ITubeBackend.dto.likedvideos.LikedVideoStatusResponse;
 import ITubeBackend.security.CurrentUser;
 import ITubeBackend.service.likedvideos.LikedVideoService;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpSession;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Positive;
@@ -34,28 +33,26 @@ public class LikedVideoController {
 
     @PutMapping("/{videoId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void likeVideo(HttpSession session, @PathVariable("videoId") @Positive Long videoId) {
-        likedVideoService.likeVideo(CurrentUser.require(session), videoId);
+    public void likeVideo(@PathVariable("videoId") @Positive Long videoId) {
+        likedVideoService.likeVideo(CurrentUser.require(), videoId);
     }
 
     @DeleteMapping("/{videoId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void unlikeVideo(HttpSession session, @PathVariable("videoId") @Positive Long videoId) {
-        likedVideoService.unlikeVideo(CurrentUser.require(session), videoId);
+    public void unlikeVideo(@PathVariable("videoId") @Positive Long videoId) {
+        likedVideoService.unlikeVideo(CurrentUser.require(), videoId);
     }
 
     @GetMapping("/{videoId}")
-    public LikedVideoStatusResponse getLikeStatus(HttpSession session,
-                                                 @PathVariable("videoId") @Positive Long videoId) {
-        return likedVideoService.getLikeStatus(CurrentUser.require(session), videoId);
+    public LikedVideoStatusResponse getLikeStatus(@PathVariable("videoId") @Positive Long videoId) {
+        return likedVideoService.getLikeStatus(CurrentUser.require(), videoId);
     }
 
     @GetMapping
     public List<LikedVideoResponse> getLikedVideos(
-            HttpSession session,
             @RequestParam(value = "page", defaultValue = "0") @Min(0) int page,
             @RequestParam(value = "size", defaultValue = "20") @Min(1) @Max(100) int size) {
-        Long userId = CurrentUser.require(session);
+        Long userId = CurrentUser.require();
         return likedVideoService.getLikedVideos(userId, page, size);
     }
 }

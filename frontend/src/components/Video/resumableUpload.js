@@ -1,3 +1,5 @@
+import { refreshAccessToken } from '../../api/session';
+
 // Resumable video uploads (backend: UploadController). The file goes up as numbered parts, normally
 // straight to object storage through pre-signed URLs. Object storage keeps the parts that arrived, so an
 // upload that was paused, lost its connection or had its tab closed continues where it stopped.
@@ -32,7 +34,7 @@ async function api(path, { method = 'GET', json, body, signal } = {}) {
     body: json ? JSON.stringify(json) : body,
   });
   if (response.status === 401) {
-    throw new UploadError('Your session expired. Click the ITube logo to start a new session.', { fatal: true, status: 401 });
+    throw new UploadError('Your session expired. Sign in again to resume this upload.', { fatal: true, status: 401 });
   }
   if (!response.ok) {
     let problem;
@@ -84,7 +86,14 @@ function putPart(target, blob, onProgress, signal) {
     request.onload = () => {
       finish();
       if (request.status >= 200 && request.status < 300) { resolve(); return; }
-      if (target.viaBackend && [401, 404, 410].includes(request.status)) {
+      if (target.viaBackend && request.status === 401) {
+        // The access token expired during a long upload: refresh it and let the caller retry this part
+        refreshAccessToken().then(refreshed => reject(refreshed
+          ? new UploadError('Access token refreshed', { status: 401 })
+          : new UploadError('Your session expired. Sign in again to resume this upload.', { fatal: true, status: 401 })));
+        return;
+      }
+      if (target.viaBackend && [404, 410].includes(request.status)) {
         let problem;
         try { problem = JSON.parse(request.responseText); } catch { /* The response may not contain JSON. */ }
         reject(new UploadError(problem?.detail || 'This upload can no longer be resumed.', { fatal: true, status: request.status }));

@@ -10,6 +10,7 @@ account `160198385987`, region `eu-west-2`:
 | [`github.tf`](github.tf) | GitHub OIDC identity provider and the deploy role `github-action-role` (trust policy + ECR push / `eks:DescribeCluster` permissions) |
 | [`ecr.tf`](ecr.tf) | ECR repositories `eks-lab/itube-backend` and `eks-lab/itube-frontend` (immutable tags, scan on push, keep last 30 images) |
 | [`kubernetes.tf`](kubernetes.tf) | StorageClass `gp3` (encrypted, EBS CSI) and namespace `itube` (Pod Security: enforce `baseline`, warn/audit `restricted`) |
+| [`cognito.tf`](cognito.tf) | Cognito user pool, hosted login domain, public app client (code flow + PKCE) for "Continue with Cognito", and the ConfigMap `itube-cognito` identity-service reads ([docs/AUTH.md](../../docs/AUTH.md)) |
 | [`storage.tf`](storage.tf) | S3 media bucket `itube-media-<account id>` (private, encrypted) and the backend's Pod Identity role for it |
 | [`imports.tf`](imports.tf) | Adopts the OIDC provider, deploy role and ECR repositories that were created by hand |
 

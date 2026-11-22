@@ -34,7 +34,7 @@ public void catalogIsDown() {
 
 | Service | Feature files | What they cover |
 |---|---|---|
-| identity | [accounts.feature](../backend/identity-service/src/test/resources/features/accounts.feature) | registration, sign-in, shared session, registration and sign-in while the catalog is down |
+| identity | [accounts.feature](../backend/identity-service/src/test/resources/features/accounts.feature) | registration, sign-in, access token, registration and sign-in while the catalog is down |
 | catalog | [sharding.feature](../backend/catalog-service/src/test/resources/features/sharding.feature), [caching-and-resilience.feature](../backend/catalog-service/src/test/resources/features/caching-and-resilience.feature) | data placement on two real databases, ids, feed/search/subscriptions across shards, cache invalidation, payments outage |
 | engagement | [engagement.feature](../backend/engagement-service/src/test/resources/features/engagement.feature) | history, likes, comments, behaviour while the catalog is down |
 | payments | [entitlements.feature](../backend/payments-service/src/test/resources/features/entitlements.feature) | who may watch members-only videos (a Scenario Outline table), memberships page while the catalog is down |
