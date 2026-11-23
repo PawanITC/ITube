@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '../Icon.jsx';
 import LikeButton from '../LikedVideos/LikeButton';
+import SaveButton from '../SavedVideos/SaveButton';
+import AddToPlaylistButton from '../Playlists/AddToPlaylistButton';
+import PlaylistQueue from '../Playlists/PlaylistQueue';
+import usePlaylistQueue from '../Playlists/usePlaylistQueue';
 import { recordWatch } from '../../api/history';
 import VideoCard from './VideoCard.jsx';
 import JoinButton from '../Membership/JoinButton.jsx';
@@ -42,7 +46,8 @@ function formatPlayerTime(value) {
     : `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
-export default function WatchPage({ videoId, videos, videosLoading, videosError, session, onSelectVideo, onSelectChannel, onOpenMemberships }) {
+export default function WatchPage({ videoId, videos, videosLoading, videosError, session, onSelectVideo, onSelectChannel, onOpenMemberships, playlistId, onOpenPlaylist }) {
+  const playlistQueue = usePlaylistQueue(playlistId, videoId);
   const [playback, setPlayback] = useState(null);
   const [playbackError, setPlaybackError] = useState('');
   const [comments, setComments] = useState([]);
@@ -80,7 +85,9 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
   const playedBreaksRef = useRef(new Set());
   const adRef = useRef(null);
   const [processingStatus, setProcessingStatus] = useState('PROCESSING');
-  const video = useMemo(() => videos.find(item => item.videoId === videoId), [videos, videoId]);
+  // A playlist may include unlisted videos absent from the public feed, including after a page reload.
+  const video = useMemo(() => videos.find(item => item.videoId === videoId)
+    || playlistQueue.videos.find(item => item.videoId === videoId)?.video, [videos, videoId, playlistQueue.videos]);
   const recommendations = useMemo(() => videos.filter(item => item.videoId !== videoId), [videos, videoId]);
 
   useEffect(() => {
@@ -366,7 +373,7 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
               </div>
             ) : (
             <div ref={playerWrapRef} className={`watch-player-wrap${theaterMode ? ' is-theater' : ''}`}>
-              <video ref={videoRef} className="watch-player" src={selectedQuality === 'source' ? playback.sourceUrl : `/api/videos/${videoId}/renditions/${selectedQuality}${tokenQuery}`} onClick={togglePlayback} onLoadedMetadata={event => { setDuration(event.currentTarget.duration); setCurrentTime(event.currentTarget.currentTime); restorePlayback(); }} onTimeUpdate={handleTimeUpdate} onDurationChange={event => setDuration(event.currentTarget.duration)} onPlay={() => setIsPlaying(true)} onPlaying={recordPlaybackHistory} onPause={() => setIsPlaying(false)} onVolumeChange={event => { setVolume(event.currentTarget.volume); setIsMuted(event.currentTarget.muted); }} onEnded={() => setIsPlaying(false)} onError={recoverFromPlaybackError} onRateChange={event => setPlaybackRate(event.currentTarget.playbackRate)} poster={video.thumbnailUrl || undefined} autoPlay playsInline />
+              <video ref={videoRef} className="watch-player" src={selectedQuality === 'source' ? playback.sourceUrl : `/api/videos/${videoId}/renditions/${selectedQuality}${tokenQuery}`} onClick={togglePlayback} onLoadedMetadata={event => { setDuration(event.currentTarget.duration); setCurrentTime(event.currentTarget.currentTime); restorePlayback(); }} onTimeUpdate={handleTimeUpdate} onDurationChange={event => setDuration(event.currentTarget.duration)} onPlay={() => setIsPlaying(true)} onPlaying={recordPlaybackHistory} onPause={() => setIsPlaying(false)} onVolumeChange={event => { setVolume(event.currentTarget.volume); setIsMuted(event.currentTarget.muted); }} onEnded={() => { setIsPlaying(false); if (playlistQueue.next) onSelectVideo(playlistQueue.next.videoId, playlistQueue.next.video, playlistId); }} onError={recoverFromPlaybackError} onRateChange={event => setPlaybackRate(event.currentTarget.playbackRate)} poster={video.thumbnailUrl || undefined} autoPlay playsInline />
               {activeAd && <div className="watch-ad" role="region" aria-label="Advertisement">
                 <video ref={adRef} className="watch-ad-player" src={activeAd.sourceUrl} playsInline onClick={toggleAdPlayback}
                   onTimeUpdate={updateAdRemaining} onLoadedMetadata={updateAdRemaining} onPlay={() => setAdPlaying(true)} onPause={() => setAdPlaying(false)}
@@ -424,7 +431,11 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
               <a className="watch-channel" href={`/channel/${video.channelId}`} onClick={event => { event.preventDefault(); onSelectChannel(video.channelId); }}>{video.channelName}</a>
               <JoinButton channelId={video.channelId} onOpenMemberships={onOpenMemberships} />
               <LikeButton key={`${videoId}:${session?.userId || 'current'}`} videoId={videoId} />
+              <SaveButton key={`save:${videoId}:${session?.userId || 'current'}`} videoId={videoId} />
+              <AddToPlaylistButton key={`playlist:${videoId}:${session?.userId || 'current'}`} videoId={videoId} />
             </div>
+
+            {playlistId && <PlaylistQueue playlistId={playlistId} videoId={videoId} queue={playlistQueue} onSelectVideo={onSelectVideo} onOpenPlaylist={onOpenPlaylist} />}
 
             <section className="comments-section" aria-labelledby="comments-heading">
               <h2 id="comments-heading">Comments <span>({comments.length})</span></h2>

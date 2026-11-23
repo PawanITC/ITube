@@ -44,6 +44,44 @@ CREATE TABLE IF NOT EXISTS {keyspace}.likes_by_video (
     PRIMARY KEY ((video_id), user_id)
 );
 
+-- Saved videos use the same user-first access pattern as likes. The lookup prevents duplicates.
+CREATE TABLE IF NOT EXISTS {keyspace}.saved_video_lookup (
+    user_id bigint,
+    video_id bigint,
+    saved_at timestamp,
+    PRIMARY KEY ((user_id), video_id)
+);
+
+CREATE TABLE IF NOT EXISTS {keyspace}.saved_videos_by_user (
+    user_id bigint,
+    saved_at timestamp,
+    video_id bigint,
+    PRIMARY KEY ((user_id), saved_at, video_id)
+) WITH CLUSTERING ORDER BY (saved_at DESC, video_id DESC);
+
+-- A bounded private playlist keeps its ordered ids and metadata in one conditionally updated row.
+CREATE TABLE IF NOT EXISTS {keyspace}.playlists_by_user (
+    user_id bigint,
+    playlist_id timeuuid,
+    title text,
+    created_at timestamp,
+    updated_at timestamp,
+    version uuid,
+    video_ids list<bigint>,
+    added_at map<bigint, timestamp>,
+    PRIMARY KEY ((user_id), playlist_id)
+) WITH CLUSTERING ORDER BY (playlist_id DESC);
+
+-- Generated playback order expires after 24h; every snapshot is its own small partition.
+CREATE TABLE IF NOT EXISTS {keyspace}.automatic_playlist_snapshots (
+    user_id bigint,
+    snapshot_id uuid,
+    generated_at timestamp,
+    personalized boolean,
+    video_ids list<bigint>,
+    PRIMARY KEY ((user_id, snapshot_id))
+);
+
 -- GET /api/videos/{id}/comments: newest first. author_name is copied in at write time.
 CREATE TABLE IF NOT EXISTS {keyspace}.comments_by_video (
     video_id bigint,

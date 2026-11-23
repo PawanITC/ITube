@@ -28,6 +28,9 @@ Then [docs/SHARDING.md](docs/SHARDING.md), [docs/CDN-AND-DNS.md](docs/CDN-AND-DN
 
 ## Prerequisites
 
+Feature guides: [Saved Videos / Watch later](backend/SAVED-VIDEOS.md) and [Playlists](backend/PLAYLISTS.md).
+Automatic recommendations: [Personalized playlists](backend/AUTOMATIC-PLAYLISTS.md).
+
 | Tool    | Version                    | Check with       |
 |---------|----------------------------|------------------|
 | Java    | 21                         | `java -version`  |
