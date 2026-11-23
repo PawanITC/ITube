@@ -23,6 +23,19 @@ import java.util.Optional;
  * need all videos (the feed) are run on each shard and merged by the caller.
  */
 public interface VideoRepository extends JpaRepository<VideoEntity, Long> {
+    String RECOMMENDATION_ROW = "select new ITubeBackend.dto.video.VideoRow(v.videoId, c.channelId, v.title, c.channelName, v.duration, case when v.thumbnailKey is null then false else true end, v.processingStatus, v.visibility, v.requiredTierLevel, c.ownerUserId, v.createdAt) from VideoEntity v join v.channel c ";
+    String RECOMMENDABLE = "v.visibility = ITubeBackend.entities.VideoVisibility.PUBLIC and v.videoType = ITubeBackend.entities.VideoType.VIDEO and v.processingStatus = 'READY' and v.videoKey is not null and trim(v.videoKey) <> '' ";
+
+    @Query(RECOMMENDATION_ROW + "where " + RECOMMENDABLE + "and v.videoId not in :excluded order by v.createdAt desc, v.videoId desc")
+    List<VideoRow> findRecommendationCandidates(@Param("excluded") Collection<Long> excluded, Limit limit);
+
+    @Query(RECOMMENDATION_ROW + "where " + RECOMMENDABLE + "and c.channelId in :channels and v.videoId not in :excluded order by v.createdAt desc, v.videoId desc")
+    List<VideoRow> findRecommendationCandidatesByChannel(@Param("channels") Collection<Long> channels,
+                                                       @Param("excluded") Collection<Long> excluded, Limit limit);
+
+    @Query(RECOMMENDATION_ROW + "where " + RECOMMENDABLE + "and v.videoId in :ids")
+    List<VideoRow> findEligibleRecommendationRows(@Param("ids") Collection<Long> ids);
+
     /**
      * Feed page from this shard: public and members-only videos (members-only are shown locked), newest first.
      * Ads are not listed; they only play inside other videos.

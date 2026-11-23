@@ -2,6 +2,8 @@ import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import Header from './components/Header';
 import History from './pages/History';
 import LikedVideos from './pages/LikedVideos';
+import SavedVideos from './pages/SavedVideos';
+import Playlists from './pages/Playlists';
 import Sidebar from './components/Sidebar';
 import VideoGrid from './components/Video/VideoGrid';
 import UploadVideoPage from './components/Video/UploadVideoPage';
@@ -21,10 +23,16 @@ import './App.css';
 const Demo = import.meta.env.DEV ? lazy(() => import('./pages/Demo')) : null;
 
 function readRoute() {
+  const automaticMatch = window.location.pathname.match(/^\/playlists\/automatic\/([a-fA-F0-9-]+)$/);
+  if (automaticMatch) return { page: 'playlists', playlistId: `automatic:${automaticMatch[1]}` };
+  const playlistMatch = window.location.pathname.match(/^\/playlists(?:\/([a-fA-F0-9-]+))?$/);
+  if (playlistMatch) return { page: 'playlists', playlistId: playlistMatch[1] };
+  if (window.location.hash === '#playlists') return { page: 'playlists' };
+  if (['/saved-videos', '/watch-later'].includes(window.location.pathname) || ['#saved-videos', '#watch-later'].includes(window.location.hash)) return { page: 'saved-videos' };
   if (window.location.pathname === '/liked-videos' || window.location.hash === '#liked-videos') return { page: 'liked-videos' };
   if (window.location.pathname === '/history' || window.location.hash === '#history') return { page: 'history' };
   const watchMatch = window.location.pathname.match(/^\/watch\/(\d+)$/);
-  if (watchMatch) return { page: 'watch', videoId: Number(watchMatch[1]), video: window.history.state?.video };
+  if (watchMatch) return { page: 'watch', videoId: Number(watchMatch[1]), video: window.history.state?.video, playlistId: new URLSearchParams(window.location.search).get('playlist') || undefined };
   const channelMatch = window.location.pathname.match(/^\/channel\/(\d+)$/);
   if (channelMatch) return { page: 'channel', channelId: Number(channelMatch[1]) };
   if (window.location.pathname === '/my-videos') return { page: 'my-videos' };
@@ -63,7 +71,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (['auth', 'upload', 'history', 'liked-videos', 'my-videos', 'edit-video'].includes(route.page)) return;
+    if (['auth', 'upload', 'history', 'liked-videos', 'saved-videos', 'playlists', 'my-videos', 'edit-video'].includes(route.page)) return;
     let cancelled = false;
     setVideosLoading(true);
     fetch('/api/videos')
@@ -146,14 +154,26 @@ function App() {
     setRoute({ page: 'home', videoId: null });
   }
 
-  function openVideo(videoId, video) {
-    window.history.pushState({ video }, '', `/watch/${videoId}`);
-    setRoute({ page: 'watch', videoId, video });
+  function openVideo(videoId, video, playlistId) {
+    const query = playlistId ? `?${new URLSearchParams({ playlist: playlistId })}` : '';
+    window.history.pushState({ video }, '', `/watch/${videoId}${query}`);
+    setRoute({ page: 'watch', videoId, video, playlistId });
   }
 
   function openLikedVideos() {
     window.history.pushState({}, '', '/liked-videos');
     setRoute({ page: 'liked-videos' });
+  }
+
+  function openPlaylists(playlistId) {
+    const path = playlistId?.startsWith('automatic:') ? `/playlists/automatic/${playlistId.slice('automatic:'.length)}` : playlistId ? `/playlists/${playlistId}` : '/playlists';
+    window.history.pushState({}, '', path);
+    setRoute({ page: 'playlists', playlistId });
+  }
+
+  function openSavedVideos() {
+    window.history.pushState({}, '', '/saved-videos');
+    setRoute({ page: 'saved-videos' });
   }
 
   function openHistory() {
@@ -210,7 +230,7 @@ function App() {
       ) : route.page === 'edit-video' ? (
         <main className="upload-main"><EditVideoPage key={route.videoId} videoId={route.videoId} onBack={openMyVideos} onDeleted={openMyVideos} /></main>
       ) : route.page === 'watch' ? (
-        <WatchPage videoId={route.videoId} videos={route.video ? [route.video, ...videos.filter(video => video.videoId !== route.videoId)] : videos} videosLoading={route.video ? false : videosLoading} videosError={route.video ? '' : videosError} session={activeSession} onSelectVideo={openVideo} onSelectChannel={openChannel} onOpenMemberships={openMemberships} />
+        <WatchPage key={activeSession?.userId || 'current'} playlistId={route.playlistId} onOpenPlaylist={openPlaylists} videoId={route.videoId} videos={route.video ? [route.video, ...videos.filter(video => video.videoId !== route.videoId)] : videos} videosLoading={route.video ? false : videosLoading} videosError={route.video ? '' : videosError} session={activeSession} onSelectVideo={openVideo} onSelectChannel={openChannel} onOpenMemberships={openMemberships} />
       ) : route.page === 'memberships' ? (
         <MembershipsPage onOpenChannel={openChannel} />
       ) : route.page === 'demo' ? (
@@ -220,7 +240,7 @@ function App() {
       ) : route.page === 'channel' ? (
         <ChannelPage channelId={route.channelId} onSelectVideo={openVideo} onSelectChannel={openChannel} onOpenMemberships={openMemberships} />
       ) : (
-        <><Sidebar onOpenLikedVideos={openLikedVideos} activePage={route.page === 'liked-videos' ? 'Liked videos' : route.page === 'history' ? 'History' : route.page === 'my-videos' ? 'My Videos' : 'Home'} onOpenHistory={openHistory} onOpenMyVideos={openMyVideos} onHome={returnHome} session={activeSession} onSelectChannel={openChannel} onOpenMemberships={openMemberships} /><main className="main-content"><nav className="mobile-library-nav" aria-label="Mobile library"><a href="/" onClick={event => { event.preventDefault(); returnHome(); }} aria-current={route.page === 'home' ? 'page' : undefined}>Home</a><a href="/history" onClick={event => { event.preventDefault(); openHistory(); }} aria-current={route.page === 'history' ? 'page' : undefined}>History</a><a href="/liked-videos" onClick={event => { event.preventDefault(); openLikedVideos(); }} aria-current={route.page === 'liked-videos' ? 'page' : undefined}>Liked videos</a>{activeSession && <a href="/my-videos" onClick={event => { event.preventDefault(); openMyVideos(); }} aria-current={route.page === 'my-videos' ? 'page' : undefined}>My Videos</a>}</nav>{route.page === 'liked-videos' ? <LikedVideos key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : route.page === 'history' ? <History key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} /> : route.page === 'my-videos' ? <MyVideosPage onEditVideo={openEditVideo} /> : <div className="feed-content">{search ? <SearchResults query={search} filter={searchFilter} onFilterChange={setSearchFilter} videos={visibleVideos} videosLoading={videosLoading} videosError={videosError} channels={channelResults} channelsLoading={channelsLoading} channelsError={channelsError} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : <VideoGrid videos={visibleVideos} loading={videosLoading} error={videosError} onSelectVideo={openVideo} onSelectChannel={openChannel} />}</div>}</main></>
+        <><Sidebar onOpenPlaylists={openPlaylists} onOpenSavedVideos={openSavedVideos} onOpenLikedVideos={openLikedVideos} activePage={route.page === 'playlists' ? 'Playlists' : route.page === 'saved-videos' ? 'Watch later' : route.page === 'liked-videos' ? 'Liked videos' : route.page === 'history' ? 'History' : route.page === 'my-videos' ? 'My Videos' : 'Home'} onOpenHistory={openHistory} onOpenMyVideos={openMyVideos} onHome={returnHome} session={activeSession} onSelectChannel={openChannel} onOpenMemberships={openMemberships} /><main className="main-content"><nav className="mobile-library-nav" aria-label="Mobile library"><a href="/" onClick={event => { event.preventDefault(); returnHome(); }} aria-current={route.page === 'home' ? 'page' : undefined}>Home</a><a href="/history" onClick={event => { event.preventDefault(); openHistory(); }} aria-current={route.page === 'history' ? 'page' : undefined}>History</a><a href="/liked-videos" onClick={event => { event.preventDefault(); openLikedVideos(); }} aria-current={route.page === 'liked-videos' ? 'page' : undefined}>Liked videos</a><a href="/playlists" onClick={event => { event.preventDefault(); openPlaylists(); }} aria-current={route.page === 'playlists' ? 'page' : undefined}>Playlists</a><a href="/saved-videos" onClick={event => { event.preventDefault(); openSavedVideos(); }} aria-current={route.page === 'saved-videos' ? 'page' : undefined}>Watch later</a>{activeSession && <a href="/my-videos" onClick={event => { event.preventDefault(); openMyVideos(); }} aria-current={route.page === 'my-videos' ? 'page' : undefined}>My Videos</a>}</nav>{route.page === 'playlists' ? <Playlists key={`${activeSession?.userId || 'current'}:${route.playlistId || 'library'}`} playlistId={route.playlistId} onOpenPlaylist={openPlaylists} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : route.page === 'saved-videos' ? <SavedVideos key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : route.page === 'liked-videos' ? <LikedVideos key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : route.page === 'history' ? <History key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} /> : route.page === 'my-videos' ? <MyVideosPage onEditVideo={openEditVideo} /> : <div className="feed-content">{search ? <SearchResults query={search} filter={searchFilter} onFilterChange={setSearchFilter} videos={visibleVideos} videosLoading={videosLoading} videosError={videosError} channels={channelResults} channelsLoading={channelsLoading} channelsError={channelsError} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : <VideoGrid videos={visibleVideos} loading={videosLoading} error={videosError} onSelectVideo={openVideo} onSelectChannel={openChannel} />}</div>}</main></>
       )}
     </div>
   );

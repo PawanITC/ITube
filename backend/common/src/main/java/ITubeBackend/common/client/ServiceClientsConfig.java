@@ -49,6 +49,14 @@ public class ServiceClientsConfig {
     @Bean
     @Lazy
     @ConditionalOnMissingBean
+    RecommendationCatalogClient recommendationCatalogClient(DownstreamFactory downstreams,
+                                @Value("${itube.services.catalog.url}") String url) {
+        return new HttpRecommendationCatalogClient(downstreams.create("catalog", url));
+    }
+
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
     IdentityClient identityClient(DownstreamFactory downstreams, CacheManager cacheManager,
                                   @Value("${itube.services.identity.url}") String url) {
         return new IdentityClient.Http(downstreams.create("identity", url), cacheManager);

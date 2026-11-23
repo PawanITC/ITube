@@ -1,0 +1,29 @@
+.playlist-control { position: relative; }
+.automatic-playlist { margin: 24px 0; border: 1px solid #c5d7ef; border-radius: 16px; padding: 24px; background: #f5f8ff; }
+.automatic-playlist h2 { margin: 12px 0; }
+.automatic-playlist p { line-height: 1.6; }
+.automatic-playlist button:focus-visible { outline: 3px solid #065fd4; outline-offset: 3px; }
+.playlist-picker { position: absolute; top: calc(100% + 8px); right: 0; z-index: 10; width: min(360px, calc(100vw - 32px)); padding: 20px; background: white; color: #0f0f0f; border: 1px solid #ddd; border-radius: 16px; box-shadow: 0 8px 28px #0002; }
+.playlist-picker h2 { font-size: 20px; margin-top: 0; }
+.playlist-picker p, .playlist-grid p { color: #606060; }
+.playlist-form { display: flex; gap: 12px; align-items: end; margin: 20px 0; flex-wrap: wrap; }
+.playlist-form label, .playlist-picker label { display: flex; flex-direction: column; gap: 8px; font-size: 14px; font-weight: 600; }
+.playlist-form input, .playlist-picker input, .playlist-picker select { font: inherit; padding: 10px 12px; border: 1px solid #aaa; border-radius: 8px; max-width: 100%; min-width: 0; }
+.playlist-picker select { width: 100%; margin-bottom: 12px; }
+.playlist-picker .playlist-form { flex-direction: column; align-items: stretch; }
+.playlist-actions, .playlist-entry-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
+.playlist-entry-actions .liked-button { padding: 6px 12px; }
+.playlist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); list-style: none; gap: 20px; padding: 0; }
+.playlist-grid li, .playlist-unavailable, .playlist-confirm { border: 1px solid #ddd; border-radius: 16px; padding: 24px; margin: 16px 0; }
+.playlist-grid h2 { font-size: 20px; overflow-wrap: anywhere; }
+.playlist-grid a { color: inherit; }
+.playlist-unavailable { min-height: 210px; background: #fafafa; }
+.playlist-unavailable h2 { font-size: 18px; }
+.playlist-confirm .liked-button + .liked-button { margin-left: 12px; }
+.playlist-queue { margin: 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 12px; }
+.playlist-queue h2 { font-size: 20px; }
+.playlist-queue ol { max-height: 250px; overflow: auto; padding-left: 28px; }
+.playlist-queue li { padding: 6px 0; }
+.playlist-queue li button { border: 0; background: transparent; color: #065fd4; cursor: pointer; text-align: left; font: inherit; }
+.playlist-queue [aria-current="true"] { font-weight: 700; text-decoration: underline; }
+.playlist-picker button:focus-visible, .playlist-picker input:focus-visible, .playlist-picker select:focus-visible, .playlist-queue button:focus-visible { outline: 3px solid #065fd4; outline-offset: 3px; }
