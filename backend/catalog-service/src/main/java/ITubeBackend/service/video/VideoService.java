@@ -8,9 +8,11 @@ import ITubeBackend.dto.video.CreateVideo;
 import ITubeBackend.dto.video.InternalVideoSummary;
 import ITubeBackend.dto.video.MediaUpload;
 import ITubeBackend.dto.video.PlaybackAuthorisationDto;
+import ITubeBackend.dto.video.QualityLevelDto;
 import ITubeBackend.dto.video.RenditionRef;
 import ITubeBackend.dto.video.VideoAccessDto;
 import ITubeBackend.dto.video.VideoDeletedEvent;
+import ITubeBackend.dto.video.VideoDetailsDto;
 import ITubeBackend.dto.video.VideoMediaDto;
 import ITubeBackend.dto.video.VideoRow;
 import ITubeBackend.dto.video.VideoSummaryDto;
@@ -28,6 +30,7 @@ import ITubeBackend.service.entitlement.PlaybackTokenService;
 import ITubeBackend.sharding.IdAllocator;
 import ITubeBackend.sharding.ShardIds;
 import ITubeBackend.sharding.Shards;
+import ITubeBackend.storage.HlsPlaylist;
 import ITubeBackend.storage.MediaKeys;
 import ITubeBackend.storage.ObjectStorage;
 import ITubeBackend.storage.StorageProperties;
@@ -45,6 +48,8 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.time.Clock;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
@@ -132,6 +137,7 @@ public class VideoService {
         VideoVisibility visibility = validateDetails(createVideo.channelId(), createVideo.title(), createVideo.duration(),
                 createVideo.visibility(), createVideo.requiredTierLevel(), createVideo.videoType());
         resolveAdCount(createVideo.videoType(), createVideo.adsEnabled(), createVideo.adCount(), createVideo.duration());
+        normalizeDescription(createVideo.description());
 
         String folder = MediaKeys.newVideoFolder();
         List<String> uploaded = new ArrayList<>();
@@ -191,6 +197,19 @@ public class VideoService {
         return effective;
     }
 
+    public static final int MAX_DESCRIPTION_LENGTH = 5000;
+
+    /** Trims the optional description; blank means none (null). Refuses one longer than 5000 characters. */
+    public static String normalizeDescription(String description) {
+        if (description == null || description.isBlank()) return null;
+        String trimmed = description.strip();
+        if (trimmed.length() > MAX_DESCRIPTION_LENGTH) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Description must be " + MAX_DESCRIPTION_LENGTH + " characters or fewer");
+        }
+        return trimmed;
+    }
+
     /** Uploads the thumbnail (adding its key to {@code uploaded}) and inserts the video row on the channel's shard. */
     private Long recordVideo(CreateVideo createVideo, VideoVisibility visibility, String videoKey, List<String> uploaded,
                              Runnable inSameTransaction) {
@@ -230,6 +249,7 @@ public class VideoService {
         video.setThumbnailContentType(thumbnailKey == null ? null : createVideo.thumbnail().contentType());
         video.setTitle(createVideo.title().trim());
         video.setDuration(createVideo.duration());
+        video.setDescription(normalizeDescription(createVideo.description()));
         VideoType videoType = createVideo.videoType() == null ? VideoType.VIDEO : createVideo.videoType();
         video.setVideoType(videoType);
         video.setAdsEnabled(videoType == VideoType.VIDEO && createVideo.adsEnabled());
@@ -269,6 +289,47 @@ public class VideoService {
         PlaybackTokenService.IssuedToken token = playbackTokenService.issue(videoId, userId, videoLength);
         return new PlaybackAuthorisationDto(videoId, access.channelId(), visibility, access.requiredTierLevel(),
                 true, null, sourceUrl + "?token=" + token.token(), token.token(), token.expiresAt());
+    }
+
+    /**
+     * Description, view count and upload time for the watch page. Shown to anyone who can see the video's title:
+     * everyone, except that a private video is only shown to its owner.
+     */
+    public VideoDetailsDto getDetails(Long videoId, Long userId) {
+        requireVisibleTo(videoId, userId);
+        return shards.onShardOf(videoId, () -> videoRepository.findDetails(videoId))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Video not found"));
+    }
+
+    private static final java.util.regex.Pattern VIEWER_ID = java.util.regex.Pattern.compile("[A-Za-z0-9-]{8,48}");
+
+    /**
+     * Counts a view of a video or ad the first time each viewer watches it; watching again, refreshing or replaying
+     * doesn't add more. Signed-in viewers are recognised by their account, others by the random id their browser
+     * keeps ({@code viewerId}). Without either nothing is counted. Returns whether this view was counted.
+     */
+    public boolean recordView(Long videoId, Long userId, String viewerId) {
+        requireVisibleTo(videoId, userId);
+        String viewerKey = userId != null ? "user:" + userId
+                : viewerId != null && VIEWER_ID.matcher(viewerId).matches() ? "anon:" + viewerId : null;
+        if (viewerKey == null) return false;
+        try {
+            return Boolean.TRUE.equals(shards.onShardOf(videoId, () -> transactionTemplate.execute(status -> {
+                if (videoRepository.recordViewer(videoId, viewerKey) == 0) return false;
+                videoRepository.incrementViewCount(videoId);
+                return true;
+            })));
+        } catch (org.springframework.dao.DataIntegrityViolationException alreadyCounted) {
+            // The same viewer's other request inserted the row first: that one counted
+            return false;
+        }
+    }
+
+    private void requireVisibleTo(Long videoId, Long userId) {
+        VideoAccessDto access = requireAccess(videoId);
+        if (access.visibility() == VideoVisibility.PRIVATE && (userId == null || !userId.equals(access.ownerUserId()))) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Video not found");
+        }
     }
 
     /**
@@ -512,6 +573,12 @@ public class VideoService {
         return shards.onShardOf(videoId, () -> videoRepository.findRenditionQualities(videoId));
     }
 
+    /** The transcoded qualities (lowest first) with their sizes, for the player's automatic quality choice. */
+    public List<QualityLevelDto> getQualityLevels(Long videoId) {
+        requireAccess(videoId);
+        return shards.onShardOf(videoId, () -> videoRepository.findQualityLevels(videoId));
+    }
+
     public String getVideoFileKey(Long videoId) {
         return media(videoId).map(VideoMediaDto::videoKey)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Video not found"));
@@ -532,31 +599,131 @@ public class VideoService {
         return media(videoId).map(VideoMediaDto::videoKey);
     }
 
+    // ------------------------------------------------------------------ HLS
+
+    private static final java.util.regex.Pattern QUALITY_NAME = java.util.regex.Pattern.compile("\\d{3,4}p");
+
+    /**
+     * The master playlist: every HLS quality of the video (lowest first) with its bandwidth, pointing at this API's
+     * media playlists. Built from the rendition rows rather than stored, so it always matches what exists. The caller
+     * has already checked the token ({@link #assertCanStream}); it is passed on to every URL the player will fetch.
+     */
+    public String hlsMasterPlaylist(Long videoId, String token) {
+        VideoAccessDto access = requireAccessUncached(videoId);
+        List<QualityLevelDto> levels = shards.onShardOf(videoId, () -> videoRepository.findQualityLevels(videoId)).stream()
+                .filter(QualityLevelDto::isHls).toList();
+        if (levels.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "This video has no streaming qualities yet");
+        long seconds = access.duration() == null ? 0 : access.duration().toSecondOfDay();
+        String query = tokenQuery(token);
+        StringBuilder playlist = new StringBuilder("#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n");
+        for (QualityLevelDto level : levels) {
+            long average = level.sizeBytes() != null && level.sizeBytes() > 0 && seconds > 0
+                    ? Math.max(1, level.sizeBytes() * 8 / seconds) : nominalBitsPerSecond(level.quality());
+            // Peaks run above the average; FFmpeg caps them (maxrate), so this keeps players from over-reaching
+            long peak = Math.round(average * 1.3);
+            playlist.append("#EXT-X-STREAM-INF:BANDWIDTH=").append(peak).append(",AVERAGE-BANDWIDTH=").append(average)
+                    .append(",NAME=\"").append(level.quality()).append("\"\n")
+                    .append("/api/videos/").append(videoId).append("/hls/").append(level.quality()).append("/index.m3u8")
+                    .append(query).append('\n');
+        }
+        return playlist.toString();
+    }
+
+    /** One quality's playlist, with each segment pointing at this API (carrying the token) instead of storage. */
+    public String hlsMediaPlaylist(Long videoId, String quality, String token) {
+        String key = requireHlsPlaylistKey(videoId, quality);
+        String stored;
+        try {
+            stored = HlsPlaylist.read(storage, key);
+        } catch (RuntimeException exception) {
+            log.warn("Could not read HLS playlist {} of video {}: {}", key, videoId, exception.toString());
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Video quality not found");
+        }
+        String prefix = "/api/videos/" + videoId + "/hls/" + quality + "/";
+        String query = tokenQuery(token);
+        return HlsPlaylist.rewrite(stored, file -> HlsPlaylist.isMediaFileName(file) ? prefix + file + query : file);
+    }
+
+    /** Storage key of one segment (or the init segment) of one quality. */
+    public String getHlsSegmentKey(Long videoId, String quality, String file) {
+        if (!HlsPlaylist.isMediaFileName(file)) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "File not found");
+        return HlsPlaylist.folderOf(requireHlsPlaylistKey(videoId, quality)) + file;
+    }
+
+    private String requireHlsPlaylistKey(Long videoId, String quality) {
+        if (quality == null || !QUALITY_NAME.matcher(quality).matches()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Video quality not found");
+        }
+        String key = getRenditionKey(videoId, quality);
+        if (!HlsPlaylist.isPlaylistKey(key)) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Video quality not found");
+        return key;
+    }
+
+    private static String tokenQuery(String token) {
+        return token == null || token.isBlank() ? "" : "?token=" + URLEncoder.encode(token, StandardCharsets.UTF_8);
+    }
+
+    /** Matches the transcoder's caps (FfmpegTranscoder.LADDER), for renditions whose size is unknown. */
+    private static long nominalBitsPerSecond(String quality) {
+        return switch (quality) {
+            case "360p" -> 900_000L;
+            case "720p" -> 2_800_000L;
+            case "1080p" -> 5_500_000L;
+            default -> 2_000_000L;
+        };
+    }
+
+    /** All stored objects behind a rendition key: every segment of an HLS playlist, or just the file itself. */
+    private List<String> objectKeysQuietly(String key) {
+        if (!HlsPlaylist.isPlaylistKey(key)) return List.of(key);
+        try {
+            return HlsPlaylist.objectKeys(storage, key);
+        } catch (RuntimeException exception) {
+            log.warn("Could not list the segments of {}: {}", key, exception.toString());
+            return List.of(key);
+        }
+    }
+
     // ------------------------------------------------------------------ transcoding results
 
     /** Applies the worker's result. Idempotent: renditions are upserts, and status is simply set again. */
     public void applyTranscodeResult(VideoTranscodedEvent event) {
         Long videoId = event.videoId();
         if (shards.physicalOf(videoId).isEmpty()) return;
+        List<String> replaced = new ArrayList<>();
         boolean exists = shards.onShardOf(videoId, () -> transactionTemplate.execute(status -> {
             Optional<VideoEntity> video = videoRepository.findById(videoId);
             if (video.isEmpty()) return false;
             if (event.renditions() != null) {
                 for (VideoTranscodedEvent.Rendition rendition : event.renditions()) {
-                    videoRepository.saveRendition(videoId, rendition.quality(), "video/mp4", rendition.storageKey(),
+                    // Re-transcoding (the HLS backfill) replaces the old file of this quality; removed after commit
+                    videoRepository.findRendition(videoId, rendition.quality()).map(RenditionRef::storageKey)
+                            .filter(old -> !old.equals(rendition.storageKey()))
+                            .ifPresent(replaced::add);
+                    String contentType = HlsPlaylist.isPlaylistKey(rendition.storageKey()) ? HlsPlaylist.CONTENT_TYPE : "video/mp4";
+                    videoRepository.saveRendition(videoId, rendition.quality(), contentType, rendition.storageKey(),
                             rendition.sizeBytes());
                 }
             }
-            video.get().setProcessingStatus(event.status());
+            if (VideoTranscodedEvent.FAILED.equals(event.status()) && "READY".equals(video.get().getProcessingStatus())) {
+                // A re-transcode of a video that already plays (the HLS backfill) failed: it keeps playing its old files
+                log.warn("Re-transcoding video {} failed; it stays READY on its existing files", videoId);
+            } else {
+                video.get().setProcessingStatus(event.status());
+            }
             return true;
         }));
         if (!exists) {
             // Deleted while transcoding: its files are orphans now
-            if (event.renditions() != null) event.renditions().forEach(r -> deleteQuietly(r.storageKey()));
+            if (event.renditions() != null) {
+                event.renditions().forEach(r -> objectKeysQuietly(r.storageKey()).forEach(this::deleteQuietly));
+            }
             return;
         }
         caches.videoChanged(videoId);
         syncPublicRead(videoId);
+        // Players still on an old file reload the qualities when it disappears and carry on with HLS
+        replaced.forEach(key -> objectKeysQuietly(key).forEach(this::deleteQuietly));
     }
 
     // ------------------------------------------------------------------ media serving
@@ -617,7 +784,9 @@ public class VideoService {
             List<String> videoKeys = new ArrayList<>(shards.onShardOf(videoId, () -> videoRepository.findRenditionKeys(videoId)));
             Optional<VideoMediaDto> media = media(videoId);
             media.map(VideoMediaDto::videoKey).ifPresent(videoKeys::add);
-            for (String key : videoKeys) storage.setPublicRead(key, open);
+            for (String key : videoKeys) {
+                for (String object : objectKeysQuietly(key)) storage.setPublicRead(object, open);
+            }
             media.map(VideoMediaDto::thumbnailKey)
                     .ifPresent(key -> storage.setPublicRead(key, visibility != VideoVisibility.PRIVATE));
         } catch (RuntimeException exception) {

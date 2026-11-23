@@ -109,6 +109,7 @@ public class ResumableUploadService {
         boolean adsEnabled = videoType == VideoType.VIDEO && Boolean.TRUE.equals(request.adsEnabled());
         int adCount = Math.max(1, VideoService.resolveAdCount(videoType, adsEnabled, request.adCount(), request.duration()));
         String title = request.title().strip();
+        String description = VideoService.normalizeDescription(request.description());
         OffsetDateTime now = OffsetDateTime.now(clock);
 
         // Same file picked again: resume the open upload, with the details as entered now
@@ -125,6 +126,7 @@ public class ResumableUploadService {
                 UploadSessionEntity managed = sessions.findById(session.getUploadSessionId()).orElseThrow();
                 managed.setDetails(title, request.duration(), visibility, tier);
                 managed.setType(videoType, adsEnabled, adCount);
+                managed.setDescription(description);
             });
             return toDto(sessions.findById(session.getUploadSessionId()).orElseThrow());
         }
@@ -142,6 +144,7 @@ public class ResumableUploadService {
                 now, now.plus(properties.uploadTtl()));
         session.setDetails(title, request.duration(), visibility, tier);
         session.setType(videoType, adsEnabled, adCount);
+        session.setDescription(description);
         try {
             transactionTemplate.executeWithoutResult(status -> sessions.save(session));
         } catch (RuntimeException exception) {
@@ -243,7 +246,7 @@ public class ResumableUploadService {
         CreateVideo video = new CreateVideo(session.getChannelId(),
                 new MediaUpload(null, session.getFileSize(), session.getContentType()), thumbnail,
                 session.getTitle(), session.getDuration(), session.getVisibility(), session.getRequiredTierLevel(),
-                session.getVideoType(), session.isAdsEnabled(), session.getAdCount());
+                session.getVideoType(), session.isAdsEnabled(), session.getAdCount(), session.getDescription());
         return videoService.saveUploadedVideo(video, session.getStorageKey(), () -> {
             if (sessions.deleteSession(uploadId) == 0) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "This upload was already posted");
@@ -371,7 +374,7 @@ public class ResumableUploadService {
         long uploadedBytes = uploadedParts.stream().mapToLong(session::partLength).sum();
         return new UploadSessionDto(session.getUploadSessionId(), session.getFileName(), session.getFileSize(),
                 session.getFileLastModified(), session.getContentType(), session.getPartSize(), session.partCount(),
-                uploadedParts, uploadedBytes, session.getTitle(), session.getDuration(), session.getVisibility(),
+                uploadedParts, uploadedBytes, session.getTitle(), session.getDescription(), session.getDuration(), session.getVisibility(),
                 session.getRequiredTierLevel(), session.getVideoType(), session.isAdsEnabled(), session.getAdCount(),
                 session.getCreatedAt(), session.getExpiresAt());
     }

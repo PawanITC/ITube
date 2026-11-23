@@ -58,6 +58,8 @@
 .upload-form label { margin-top: 8px; font-size: 14px; font-weight: 600; }
 .upload-form input[type="file"] { padding: 12px; border: 1px dashed #aaa; border-radius: 10px; background: #fafafa; font: inherit; }
 .upload-form input[type="text"] { width: 100%; padding: 12px 14px; border: 1px solid #c6c6c6; border-radius: 8px; font: inherit; }
+.upload-form .upload-description-input { width: 100%; padding: 12px 14px; border: 1px solid #c6c6c6; border-radius: 8px; font: inherit; line-height: 1.45; resize: vertical; }
+.upload-form .upload-char-count { margin-top: -4px; text-align: right; }
 .upload-file-name { margin: 0; color: #606060; font-size: 13px; overflow-wrap: anywhere; }
 .upload-error, .upload-success { margin: 8px 0 0; font-size: 14px; line-height: 1.4; }
 .upload-error { color: #b3261e; }
@@ -198,6 +200,14 @@
 .recommendation-copy > span { color: #606060; font-size: 12px; }
 .recommendation-play { position: absolute; inset: 0; display: grid; place-items: center; color: white; opacity: 0; background: rgba(0,0,0,.2); transition: opacity .15s ease; }
 .recommendation-card:hover .recommendation-play { opacity: 1; }
+.watch-description { margin: 14px 0 24px; padding: 12px 14px; border-radius: 12px; background: #f2f2f2; font-size: 14px; line-height: 1.45; }
+.watch-description.is-collapsed { cursor: pointer; }
+.watch-description.is-collapsed:hover { background: #e5e5e5; }
+.watch-description-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 4px; font-weight: 600; }
+.watch-description-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.watch-description-text.is-expanded { display: block; -webkit-line-clamp: unset; line-clamp: unset; overflow: visible; }
+.watch-description-text.is-empty { color: #606060; }
+.watch-description-toggle { margin-top: 6px; padding: 0; border: 0; background: transparent; color: #0f0f0f; font: inherit; font-weight: 600; cursor: pointer; }
 .comments-section { padding-top: 16px; border-top: 1px solid #e5e5e5; }
 .comments-section h2 { margin: 0 0 20px; font-size: 20px; }
 .comments-section h2 span { margin-left: 5px; color: #606060; font-size: 15px; font-weight: 400; }
@@ -222,7 +232,7 @@
 @media (max-width: 1200px) { .sidebar { width: 72px; padding: 8px 4px; } .nav-group { padding-bottom: 10px; margin-bottom: 10px; } .nav-link { height: 68px; padding: 7px 0; border-radius: 10px; flex-direction: column; justify-content: center; gap: 5px; font-size: 10px; } .nav-link span, .library-group, .subscriptions-group, .sidebar footer { display: none; } .main-content { margin-left: 72px; } .video-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 700px) { .topbar { padding: 0 12px; } .brand-area { min-width: auto; gap: 8px; } .menu-button { display: none; } .brand { font-size: 18px; } .brand-mark { width: 28px; } .search-area { min-width: 0; margin: 0 8px; justify-content: flex-end; gap: 4px; } .search-form { border: 1px solid #c6c6c6; width: 100%; min-width: 0; box-shadow: none; } .search-form input { display: block; padding: 0 6px; font-size: 13px; } .search-form button { flex: 0 0 34px; width: 34px; border: 0; background: white; } .create-button span, .notification-button { display: none; } .header-actions { min-width: auto; gap: 8px; } .create-button { padding: 8px; } .sidebar { display: none; } .main-content { margin-left: 0; } .feed-content { padding: 16px 12px 28px; } .video-grid { grid-template-columns: 1fr; row-gap: 28px; } .thumbnail-link { border-radius: 0; margin: 0 -12px; width: calc(100% + 24px); } .video-details { padding-top: 10px; } .channel-result { padding: 12px; gap: 12px; } .channel-result-avatar { flex-basis: 52px; width: 52px; height: 52px; font-size: 22px; } }
 @media (max-width: 950px) { .watch-layout { grid-template-columns: minmax(0, 1fr); } .watch-recommendations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; } .watch-recommendations h2 { grid-column: 1 / -1; } }
-@media (max-width: 700px) { .watch-main { padding: 64px 0 32px; } .watch-layout { gap: 22px; } .watch-player-wrap { border-radius: 0; } .watch-volume { width: 54px; } .watch-controls { padding-right: 6px; padding-left: 6px; } .watch-controls-group { gap: 3px; } .watch-control-button { width: 32px; height: 32px; } .watch-time { font-size: 11px; } .watch-title, .watch-channel, .comments-section { margin-left: 14px; margin-right: 14px; } .comments-section { padding-top: 16px; } .watch-recommendations { margin: 0 12px; grid-template-columns: 1fr; } }
+@media (max-width: 700px) { .watch-main { padding: 64px 0 32px; } .watch-layout { gap: 22px; } .watch-player-wrap { border-radius: 0; } .watch-volume { width: 54px; } .watch-controls { padding-right: 6px; padding-left: 6px; } .watch-controls-group { gap: 3px; } .watch-control-button { width: 32px; height: 32px; } .watch-time { font-size: 11px; } .watch-title, .watch-channel, .comments-section, .watch-description { margin-left: 14px; margin-right: 14px; } .comments-section { padding-top: 16px; } .watch-recommendations { margin: 0 12px; grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .channel-videos .video-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 700px) { .channel-page { padding: 64px 12px 32px; } .channel-banner { gap: 12px; padding: 18px 0 22px; } .channel-page-avatar { flex-basis: 64px; width: 64px; height: 64px; font-size: 28px; } .channel-page-info h1 { font-size: 20px; overflow-wrap: anywhere; } .channel-page-info p { font-size: 12px; } .subscribe-button { padding: 9px 12px; font-size: 13px; } .channel-videos .video-grid { grid-template-columns: 1fr; } }
 
@@ -326,3 +336,15 @@
 .upload-unfinished-actions .upload-submit, .upload-unfinished-actions .edit-video-cancel { margin: 0; }
 .upload-unfinished-actions button:disabled { opacity: .55; cursor: not-allowed; }
 .upload-thumbnail-preview { width: 100%; max-width: 320px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 10px; background: #e5e5e5; }
+
+/* Menu button: collapses the docked sidebar, or opens the sidebar as an overlay drawer on pages without one */
+.sidebar-collapsed .sidebar:not(.sidebar-drawer) { display: none; }
+.sidebar-collapsed .main-content { margin-left: 0; }
+.sidebar-backdrop { position: fixed; inset: 0; z-index: 11; background: rgb(0 0 0 / 35%); }
+.sidebar.sidebar-drawer { display: block; top: 0; z-index: 12; width: 240px; padding: 0 12px 20px; box-shadow: 4px 0 16px rgb(0 0 0 / 15%); }
+.drawer-header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 20px; height: 56px; margin: 0 -12px 8px; padding: 0 12px; background: white; }
+.sidebar-drawer .nav-group { padding-bottom: 12px; margin-bottom: 12px; }
+.sidebar-drawer .nav-link { height: 40px; padding: 0 12px; flex-direction: row; justify-content: flex-start; gap: 24px; font-size: 14px; }
+.sidebar-drawer .nav-link span { display: inline; }
+.sidebar-drawer .library-group, .sidebar-drawer .subscriptions-group, .sidebar.sidebar-drawer footer { display: block; }
+@media (max-width: 700px) { .menu-button { display: inline-flex; } .drawer-header { gap: 8px; } }

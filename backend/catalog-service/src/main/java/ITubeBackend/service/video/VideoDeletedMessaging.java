@@ -1,8 +1,11 @@
 package ITubeBackend.service.video;
 
+import java.util.List;
+
 import ITubeBackend.common.events.Events;
 import ITubeBackend.common.events.ItubeTopics;
 import ITubeBackend.dto.video.VideoDeletedEvent;
+import ITubeBackend.storage.HlsPlaylist;
 import ITubeBackend.storage.ObjectStorage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,7 +55,9 @@ public class VideoDeletedMessaging {
     public void removeStoredFiles(String payload) {
         VideoDeletedEvent event = Events.videoDeleted(objectMapper, payload);
         for (String key : event.storageKeys()) {
-            storage.delete(key);
+            // An HLS rendition is a playlist plus its segments; the playlist (deleted last) lists them
+            List<String> objects = HlsPlaylist.isPlaylistKey(key) ? HlsPlaylist.objectKeys(storage, key) : List.of(key);
+            objects.forEach(storage::delete);
         }
     }
 }

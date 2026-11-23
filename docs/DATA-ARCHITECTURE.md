@@ -10,7 +10,7 @@ No database query or foreign key crosses from one domain to another. Domains ref
 | **catalog** | catalog-service | PostgreSQL schema `catalog`, **sharded** over several databases | `channel`, `subscriptions`, `video` (metadata + storage keys), `video_rendition`, `upload_session`, `owner_shard` (shard directory) | By creator over shards ([SHARDING.md](SHARDING.md)) + Caffeine caches + CDN |
 | **payments** | payments-service | PostgreSQL schema `payments` | Stripe customers, tiers, memberships, payments, refunds, webhook inbox, outbox | Single primary, strongly consistent; low volume. Don't shard |
 | **engagement** | engagement-service | ScyllaDB keyspace `itube_engagement` | watch history, likes, comments | Add nodes: every read is one partition, writes spread by user/video id |
-| **media** | catalog-service (writes), transcode-worker (renditions) | Object storage (S3; SeaweedFS locally) | video sources, 360p/720p renditions, thumbnails | Effectively unlimited; served by pre-signed URL or the Cloudflare CDN ([CDN-AND-DNS.md](CDN-AND-DNS.md)) |
+| **media** | catalog-service (writes), transcode-worker (renditions) | Object storage (S3; SeaweedFS locally) | video sources, 360p/720p HLS renditions (segments + playlists), thumbnails | Effectively unlimited; served by pre-signed URL or the Cloudflare CDN ([CDN-AND-DNS.md](CDN-AND-DNS.md)) |
 
 Payment rate limits stay in Redis. Who is signed in travels in a signed access token, not a server-side session
 ([AUTH.md](AUTH.md)); refresh tokens are in the `identity` schema. Kafka carries small events only (ids and
@@ -35,7 +35,7 @@ Each service creates and upgrades its own schema on start (idempotent scripts):
   - `watch_history_by_user` partition `user_id`, newest first by `entry_id` (a timeuuid, also the public id)
   - `likes_by_user` (list), `like_lookup` (is it liked; written with lightweight transactions), `likes_by_video` (cleanup)
   - `comments_by_video` partition `video_id`, newest first; the author's name is copied in when posted
-- Object storage keys: `videos/{random uuid}/source`, `.../thumbnail-{uuid}`, `.../renditions/{360p|720p}.mp4`
+- Object storage keys: `videos/{random uuid}/source`, `.../thumbnail-{uuid}`, `.../hls/{360p|720p}/index.m3u8` with its `init.mp4` and `seg_NNNNN.m4s` segments (videos transcoded before HLS: `.../renditions/{360p|720p}.mp4`)
   ([MediaKeys](../backend/storage/src/main/java/ITubeBackend/storage/MediaKeys.java)). Keys are never reused, so a
   cached copy can't go stale.
 
@@ -61,7 +61,7 @@ Each service creates and upgrades its own schema on start (idempotent scripts):
   the upload inserts the video row in a short transaction on the creator's shard and queues transcoding.
 - **Transcoding:** `video.transcode` (catalog -> transcode-worker) carries the source key; the worker writes the
   renditions and reports them on `video.transcoded`, which catalog-service records.
-- **Playback:** `/api/videos/{id}/file`, `/renditions/{q}` and `/thumbnail` check access (cached), then redirect to a
+- **Playback:** `/api/videos/{id}/file`, `/renditions/{q}`, `/hls/...` (master playlist built from the rendition rows, media playlists rewritten to point every segment back at this API with the viewer's token) and `/thumbnail` check access (cached), then redirect to a
   pre-signed URL, or for public media to the CDN when it's configured. Set `itube.storage.redirect-playback=false` to
   stream through the service instead (used by the local Kubernetes overlay `deploy/k8s-local`, where browsers can't
   reach SeaweedFS).

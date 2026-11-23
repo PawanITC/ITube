@@ -21,6 +21,7 @@ function formatDuration(seconds) {
 
 /** Ads can be at most this long (the backend checks it too). */
 const MAX_AD_SECONDS = 60;
+const MAX_DESCRIPTION_LENGTH = 5000;
 /** Ads only play in videos longer than this. */
 const MIN_VIDEO_SECONDS_FOR_ADS = 60;
 /** A video may have one ad per 10 minutes, and at least one (the backend checks the same rule). */
@@ -83,6 +84,7 @@ export default function UploadVideoPage({ session, onCancel }) {
   const [thumbnail, setThumbnail] = useState(null);
   const [thumbnailPreview, setThumbnailPreview] = useState('');
   const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
   const [duration, setDuration] = useState('');
   const [durationSeconds, setDurationSeconds] = useState(null);
   const [videoType, setVideoType] = useState('VIDEO');
@@ -221,6 +223,7 @@ export default function UploadVideoPage({ session, onCancel }) {
         lastModified: file.lastModified,
         contentType: file.type,
         title: title.trim(),
+        description: description.trim() || null,
         duration,
         visibility,
         requiredTierLevel: visibility === 'MEMBERS_ONLY' && requiredTierLevel ? Number(requiredTierLevel) : null,
@@ -256,6 +259,7 @@ export default function UploadVideoPage({ session, onCancel }) {
       setSuccess(`Your ${upload.videoType === 'AD' ? 'ad' : 'video'} was posted. Quality options are processing in the background.`);
       setFile(null);
       setTitle('');
+      setDescription('');
       setDuration('');
       setDurationSeconds(null);
       setThumbnail(null);
@@ -318,7 +322,6 @@ export default function UploadVideoPage({ session, onCancel }) {
 
   return (
     <section className="upload-page">
-      <button className="upload-back" type="button" onClick={onCancel}>← Back to home</button>
       <div className="upload-card">
         <h1>{isAd ? 'Upload ad' : 'Upload video'}</h1>
         <p className="upload-description">Add {isAd ? 'an ad' : 'a video'} to channel #{activeSession?.channelId ?? '…'}.</p>
@@ -344,6 +347,11 @@ export default function UploadVideoPage({ session, onCancel }) {
             <label htmlFor="video-title">Title</label>
             <input id="video-title" type="text" maxLength="255" value={title}
               onChange={event => setTitle(event.target.value)} placeholder={isAd ? 'Add a title for your ad' : 'Add a title for your video'} required />
+
+            <label htmlFor="video-description">Description (optional)</label>
+            <textarea id="video-description" className="upload-description-input" rows="5" maxLength={MAX_DESCRIPTION_LENGTH} value={description}
+              onChange={event => setDescription(event.target.value)} placeholder={isAd ? 'Tell viewers about your ad' : 'Tell viewers about your video'} />
+            <p className="upload-file-name upload-char-count">{description.length}/{MAX_DESCRIPTION_LENGTH}</p>
 
             {!isAd && <label className="upload-checkbox" htmlFor="video-ads">
               <input id="video-ads" type="checkbox" checked={adsEnabled} onChange={event => setAdsEnabled(event.target.checked)} />

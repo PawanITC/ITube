@@ -34,13 +34,23 @@ public final class ResumableUploadDtos {
             VideoType videoType,
             Boolean adsEnabled,
             /** How many ads, spread evenly; at most one per 10 minutes of video. Null means one. */
-            Integer adCount) {
+            Integer adCount,
+            /** Optional, at most 5000 characters. */
+            String description) {
+
+        /** Without a description. */
+        public StartUploadRequest(String fileName, long fileSize, long lastModified, String contentType, String title,
+                                  LocalTime duration, VideoVisibility visibility, Integer requiredTierLevel,
+                                  VideoType videoType, Boolean adsEnabled, Integer adCount) {
+            this(fileName, fileSize, lastModified, contentType, title, duration, visibility, requiredTierLevel,
+                    videoType, adsEnabled, adCount, null);
+        }
 
         /** A normal video without ads. */
         public StartUploadRequest(String fileName, long fileSize, long lastModified, String contentType, String title,
                                   LocalTime duration, VideoVisibility visibility, Integer requiredTierLevel) {
             this(fileName, fileSize, lastModified, contentType, title, duration, visibility, requiredTierLevel,
-                    VideoType.VIDEO, false, null);
+                    VideoType.VIDEO, false, null, null);
         }
     }
 
@@ -59,6 +69,7 @@ public final class ResumableUploadDtos {
             List<Integer> uploadedParts,
             long uploadedBytes,
             String title,
+            String description,
             LocalTime duration,
             VideoVisibility visibility,
             Integer requiredTierLevel,

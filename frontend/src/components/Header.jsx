@@ -7,7 +7,7 @@ function displayName(session) {
   return fullName || session.channelName || session.email || 'Your account';
 }
 
-export default function Header({ session, onHome, onSearch, onCreatePage, onSelectChannel, onOpenAuth, onSignOut }) {
+export default function Header({ session, onHome, onSearch, onCreatePage, onSelectChannel, onOpenAuth, onSignOut, onToggleMenu, menuOpen }) {
   const [query, setQuery] = useState('');
   const [profileOpen, setProfileOpen] = useState(false);
   const [channels, setChannels] = useState([]);
@@ -72,7 +72,7 @@ export default function Header({ session, onHome, onSearch, onCreatePage, onSele
   return (
     <header className="topbar">
       <div className="brand-area">
-        <button className="icon-button menu-button" aria-label="Menu"><Icon name="menu" /></button>
+        <button className="icon-button menu-button" type="button" aria-label="Menu" aria-expanded={menuOpen} onClick={onToggleMenu}><Icon name="menu" /></button>
         <a className="brand" href="/" aria-label="ITube home" onClick={goHome} title="ITube home"><span className="brand-mark"><Icon name="play" size={19} /></span><strong>ITube</strong></a>
       </div>
       <div className="search-area">

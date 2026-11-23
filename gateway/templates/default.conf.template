@@ -113,7 +113,7 @@ server {
         proxy_send_timeout 900s;
         proxy_pass http://catalog;
     }
-    location ~ ^/api/videos/[0-9]+/(file|renditions|thumbnail) {
+    location ~ ^/api/videos/[0-9]+/(file|renditions|thumbnail|hls/) {
         # Playback answers with a redirect to storage/CDN; when it streams instead, pass Range through unbuffered
         limit_req zone=api burst=200 nodelay;
         proxy_set_header Range    $http_range;
