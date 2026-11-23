@@ -12,6 +12,10 @@
 	<description>Channels, subscriptions, video metadata, uploads and playback (sharded PostgreSQL)</description>
 	<dependencies>
 		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>cloudfront</artifactId>
+		</dependency>
+		<dependency>
 			<groupId>com.example</groupId>
 			<artifactId>itube-common</artifactId>
 		</dependency>

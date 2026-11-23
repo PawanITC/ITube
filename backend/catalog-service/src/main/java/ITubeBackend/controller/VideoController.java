@@ -108,9 +108,9 @@ public class VideoController {
 
     /** The ads to play during this video (by default one at the midpoint); empty if it has none. Chosen per view. */
     @GetMapping("/api/videos/{videoId}/ad-breaks")
-    public ResponseEntity<List<AdBreakDto>> adBreaks(@PathVariable Long videoId, HttpSession session) {
+    public ResponseEntity<List<AdBreakDto>> adBreaks(@PathVariable Long videoId) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-                .body(videoService.adBreaks(videoId, CurrentUser.find(session).orElse(null)));
+                .body(videoService.adBreaks(videoId, CurrentUser.find().orElse(null)));
     }
 
     @PatchMapping("/api/videos/{videoId}/visibility")

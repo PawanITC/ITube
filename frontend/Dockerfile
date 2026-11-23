@@ -13,6 +13,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
 COPY . .
+ARG VITE_CDN_BASE_URL=""
+ENV VITE_CDN_BASE_URL=$VITE_CDN_BASE_URL
 RUN npm run build
 
 # ---- Runtime stage -----------------------------------------------------------

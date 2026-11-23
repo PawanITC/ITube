@@ -341,7 +341,7 @@ public class VideoService {
      * Returns true if the video is open to everyone (and so may be cached publicly).
      */
     public boolean assertCanStream(Long videoId, String token) {
-        VideoAccessDto access = requireAccess(videoId);
+        VideoAccessDto access = requireAccessUncached(videoId);
         if (access.visibility().openToEveryone()) return true;
         if (!playbackTokenService.isValid(videoId, token)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Playback authorisation required");
@@ -568,6 +568,12 @@ public class VideoService {
      */
     public ResponseEntity<byte[]> serveMedia(String key, String rangeHeader, boolean openToEveryone, boolean isVideo) {
         if (key == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "File not found");
+        Optional<URI> signedCdn = cdn.signedUrl(key, isVideo);
+        if (signedCdn.isPresent()) {
+            // The redirect is an access credential; CloudFront caches the bytes, never this redirect.
+            return ResponseEntity.status(HttpStatus.FOUND).location(signedCdn.get())
+                    .cacheControl(CacheControl.noStore().cachePrivate()).build();
+        }
         if (openToEveryone) {
             Optional<URI> viaCdn = cdn.publicUrl(key, isVideo);
             if (viaCdn.isPresent()) {
@@ -590,8 +596,12 @@ public class VideoService {
      * CDN for every video except private ones.
      */
     public ResponseEntity<byte[]> serveThumbnail(Long videoId) {
+        VideoAccessDto access = requireAccessUncached(videoId);
+        if (access.visibility() == VideoVisibility.PRIVATE) {
+            requireOwner(videoId, ITubeBackend.security.CurrentUser.require());
+        }
         String key = getThumbnailKey(videoId);
-        boolean listed = findAccess(videoId).map(access -> access.visibility() != VideoVisibility.PRIVATE).orElse(false);
+        boolean listed = access.visibility() != VideoVisibility.PRIVATE;
         return serveMedia(key, null, listed, false);
     }
 
@@ -600,7 +610,7 @@ public class VideoService {
      * may see. Only when a CDN is configured; failures are logged and fixed by the next change.
      */
     private void syncPublicRead(Long videoId) {
-        if (!cdn.enabled()) return;
+        if (!cdn.requiresPublicTags()) return;
         try {
             VideoVisibility visibility = findAccess(videoId).map(VideoAccessDto::visibility).orElse(VideoVisibility.PRIVATE);
             boolean open = visibility.openToEveryone();
