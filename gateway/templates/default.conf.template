@@ -2,7 +2,8 @@
 #
 #   /api/auth/*, /api/session/*               -> identity-service
 #   /api/videos/{id}/comments, /api/history,
-#   /api/liked-videos                         -> engagement-service
+#   /api/liked-videos, /api/saved-videos,
+#   /api/playlists                           -> engagement-service
 #   /api/memberships, /api/payments,
 #   /api/webhooks/*                           -> payments-service
 #   /api/channels, /api/videos, /api/uploads  -> catalog-service
@@ -97,6 +98,8 @@ server {
     location ~ ^/api/videos/[0-9]+/comments { limit_req zone=api burst=60 nodelay; proxy_pass http://engagement; }
     location ^~ /api/history       { limit_req zone=api burst=60 nodelay; proxy_pass http://engagement; }
     location ^~ /api/liked-videos  { limit_req zone=api burst=60 nodelay; proxy_pass http://engagement; }
+    location ^~ /api/saved-videos  { limit_req zone=api burst=60 nodelay; proxy_pass http://engagement; }
+    location ^~ /api/playlists     { limit_req zone=api burst=60 nodelay; proxy_pass http://engagement; }
 
     # ---- payments-service ----
     location ^~ /api/memberships { limit_req zone=api burst=60 nodelay; proxy_pass http://payments; }

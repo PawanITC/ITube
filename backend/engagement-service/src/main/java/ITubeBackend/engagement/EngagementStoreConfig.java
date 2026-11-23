@@ -1,6 +1,13 @@
 package ITubeBackend.engagement;
 
 import ITubeBackend.engagement.memory.InMemoryEngagementStores;
+import ITubeBackend.engagement.memory.InMemorySavedVideoStore;
+import ITubeBackend.engagement.memory.InMemoryPlaylistStore;
+import ITubeBackend.engagement.scylla.ScyllaPlaylistStore;
+import ITubeBackend.engagement.scylla.ScyllaAutomaticPlaylistStore;
+import ITubeBackend.engagement.memory.InMemoryAutomaticPlaylistStore;
+import java.time.Clock;
+import ITubeBackend.engagement.scylla.ScyllaSavedVideoStore;
 import ITubeBackend.engagement.scylla.ScyllaCommentStore;
 import ITubeBackend.engagement.scylla.ScyllaLikeStore;
 import ITubeBackend.engagement.scylla.ScyllaProperties;
@@ -60,6 +67,21 @@ public class EngagementStoreConfig {
         }
 
         @Bean
+        AutomaticPlaylistStore automaticPlaylistStore(CqlSession session, ScyllaProperties properties) {
+            return new ScyllaAutomaticPlaylistStore(session, properties.keyspace());
+        }
+
+        @Bean
+        PlaylistStore playlistStore(CqlSession session, ScyllaProperties properties) {
+            return new ScyllaPlaylistStore(session, properties.keyspace());
+        }
+
+        @Bean
+        SavedVideoStore savedVideoStore(CqlSession session, ScyllaProperties properties) {
+            return new ScyllaSavedVideoStore(session, properties.keyspace());
+        }
+
+        @Bean
         CommentStore commentStore(CqlSession session, ScyllaProperties properties) {
             return new ScyllaCommentStore(session, properties.keyspace());
         }
@@ -76,6 +98,21 @@ public class EngagementStoreConfig {
         @Bean
         LikeStore likeStore() {
             return new InMemoryEngagementStores.Likes();
+        }
+
+        @Bean
+        AutomaticPlaylistStore automaticPlaylistStore(Clock clock) {
+            return new InMemoryAutomaticPlaylistStore(clock);
+        }
+
+        @Bean
+        PlaylistStore playlistStore() {
+            return new InMemoryPlaylistStore();
+        }
+
+        @Bean
+        SavedVideoStore savedVideoStore() {
+            return new InMemorySavedVideoStore();
         }
 
         @Bean
