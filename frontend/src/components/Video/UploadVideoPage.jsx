@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Icon from '../Icon';
 import { isAbort, isSameFile, uploadMissingParts, uploadsApi } from './resumableUpload';
 
 function formatBytes(bytes) {
@@ -322,9 +323,15 @@ export default function UploadVideoPage({ session, onCancel }) {
 
   return (
     <section className="upload-page">
-      <div className="upload-card">
-        <h1>{isAd ? 'Upload ad' : 'Upload video'}</h1>
-        <p className="upload-description">Add {isAd ? 'an ad' : 'a video'} to channel #{activeSession?.channelId ?? '…'}.</p>
+      <button className="upload-back" type="button" onClick={onCancel}>← Back to home</button>
+      <div className="upload-card studio-upload">
+        <header className="studio-header">
+          <span className="studio-upload-icon"><Icon name="upload" size={26} /></span>
+          <div>
+            <h1>{isAd ? 'Upload ad' : 'Upload video'}</h1>
+            {activeSession && <p className="upload-description">Channel #{activeSession.channelId}</p>}
+          </div>
+        </header>
         {sessionLoading ? <p role="status">Checking your session…</p> : <>
           <div className="upload-type-tabs" role="tablist" aria-label="What are you uploading?">
             {UPLOAD_TYPES.map(type => <button key={type.value} type="button" role="tab" id={`upload-tab-${type.value}`}
@@ -333,70 +340,86 @@ export default function UploadVideoPage({ session, onCancel }) {
               disabled={uploading} onClick={() => selectVideoType(type.value)}>{type.label}</button>)}
           </div>
           <form id="upload-form" className="upload-form" role="tabpanel" aria-labelledby={`upload-tab-${videoType}`} onSubmit={submitVideo}>
-            <label className="upload-file-label" htmlFor="video-file">{isAd ? 'Ad video file' : 'Video file'}</label>
-            <input ref={fileInput} id="video-file" type="file" accept="video/*" onChange={selectFile} />
+            <div className="studio-file">
+              <Icon name="upload" size={30} />
+              <label className="upload-file-label" htmlFor="video-file">{isAd ? 'Ad video file' : 'Video file'}</label>
+              <input ref={fileInput} id="video-file" type="file" accept="video/*" onChange={selectFile} />
+            </div>
             {isAd && <p className="upload-file-name">Ads can be at most 1 minute long.</p>}
             {file && <p className="upload-file-name">{file.name}{duration ? ` · ${duration}` : ' · Reading duration…'}</p>}
             {adTooLong && <p className="upload-error" role="alert">This video is {duration} long. Ads can be at most 1 minute: choose a shorter video or upload it as a normal video.</p>}
 
-            <label htmlFor="video-thumbnail">Thumbnail (optional)</label>
-            <input ref={thumbnailInput} id="video-thumbnail" type="file" accept="image/*" onChange={selectThumbnail} />
-            <p className="upload-file-name">If you do not choose an image, a frame from the middle of the video will be used.</p>
-            {thumbnailPreview && <img className="upload-thumbnail-preview" src={thumbnailPreview} alt="Video thumbnail preview" />}
+            <div className="studio-layout">
+              <section className="studio-details" aria-labelledby="upload-details-heading">
+                <h2 id="upload-details-heading">Details</h2>
+                <label htmlFor="video-title">Title</label>
+                <input id="video-title" type="text" maxLength="255" value={title}
+                  onChange={event => setTitle(event.target.value)} placeholder={isAd ? 'Add a title for your ad' : 'Add a title for your video'} required />
 
-            <label htmlFor="video-title">Title</label>
-            <input id="video-title" type="text" maxLength="255" value={title}
-              onChange={event => setTitle(event.target.value)} placeholder={isAd ? 'Add a title for your ad' : 'Add a title for your video'} required />
+                <label htmlFor="video-description">Description (optional)</label>
+                <textarea id="video-description" className="upload-description-input" rows="5" maxLength={MAX_DESCRIPTION_LENGTH} value={description}
+                  onChange={event => setDescription(event.target.value)} placeholder={isAd ? 'Tell viewers about your ad' : 'Tell viewers about your video'} />
+                <p className="upload-file-name upload-char-count">{description.length}/{MAX_DESCRIPTION_LENGTH}</p>
 
-            <label htmlFor="video-description">Description (optional)</label>
-            <textarea id="video-description" className="upload-description-input" rows="5" maxLength={MAX_DESCRIPTION_LENGTH} value={description}
-              onChange={event => setDescription(event.target.value)} placeholder={isAd ? 'Tell viewers about your ad' : 'Tell viewers about your video'} />
-            <p className="upload-file-name upload-char-count">{description.length}/{MAX_DESCRIPTION_LENGTH}</p>
+                {!isAd && <label className="upload-checkbox" htmlFor="video-ads">
+                  <input id="video-ads" type="checkbox" checked={adsEnabled} onChange={event => setAdsEnabled(event.target.checked)} />
+                  <span>Show ads in this video</span>
+                </label>}
+                {!isAd && adsEnabled && <>
+                  <label htmlFor="video-ad-count">Number of ads</label>
+                  <select id="video-ad-count" value={Math.min(adCount, maxAds)} onChange={event => setAdCount(Number(event.target.value))}>
+                    {Array.from({ length: maxAds }, (_, index) => index + 1).map(count => <option key={count} value={count}>
+                      {count === 1 ? '1 ad' : `${count} ads`}
+                    </option>)}
+                  </select>
+                  <p className="upload-file-name">
+                    {durationSeconds !== null && durationSeconds <= MIN_VIDEO_SECONDS_FOR_ADS
+                      ? 'Ads only play in videos longer than 1 minute.'
+                      : `One ad per 10 minutes of video${durationSeconds !== null ? `: up to ${maxAds} for this one` : ''}. Ads are spread evenly through the video.`}
+                  </p>
+                </>}
 
-            {!isAd && <label className="upload-checkbox" htmlFor="video-ads">
-              <input id="video-ads" type="checkbox" checked={adsEnabled} onChange={event => setAdsEnabled(event.target.checked)} />
-              <span>Show ads in this video</span>
-            </label>}
-            {!isAd && adsEnabled && <>
-              <label htmlFor="video-ad-count">Number of ads</label>
-              <select id="video-ad-count" value={Math.min(adCount, maxAds)} onChange={event => setAdCount(Number(event.target.value))}>
-                {Array.from({ length: maxAds }, (_, index) => index + 1).map(count => <option key={count} value={count}>
-                  {count === 1 ? '1 ad' : `${count} ads`}
-                </option>)}
-              </select>
-              <p className="upload-file-name">
-                {durationSeconds !== null && durationSeconds <= MIN_VIDEO_SECONDS_FOR_ADS
-                  ? 'Ads only play in videos longer than 1 minute.'
-                  : `One ad per 10 minutes of video${durationSeconds !== null ? `: up to ${maxAds} for this one` : ''}. Ads are spread evenly through the video.`}
-              </p>
-            </>}
+              </section>
+              <section className="studio-preview" aria-labelledby="upload-preview-heading">
+                <h2 id="upload-preview-heading">Preview &amp; visibility</h2>
+                <div className="studio-preview-frame">
+                  {thumbnailPreview
+                    ? <img src={thumbnailPreview} alt="Video thumbnail preview" />
+                    : <><Icon name="myVideos" size={35} /><span>No thumbnail selected</span></>}
+                </div>
+                <label htmlFor="video-thumbnail">Thumbnail (optional)</label>
+                <input ref={thumbnailInput} id="video-thumbnail" type="file" accept="image/*" onChange={selectThumbnail} />
+                <p className="upload-file-name">If you do not choose an image, a frame from the middle of the video will be used.</p>
+                <label htmlFor="video-visibility">Visibility</label>
+                <select id="video-visibility" value={visibility} onChange={event => setVisibility(event.target.value)}>
+                  <option value="PUBLIC">Public</option>
+                  <option value="UNLISTED">Unlisted (anyone with the link)</option>
+                  <option value="PRIVATE">Private (only you)</option>
+                  <option value="MEMBERS_ONLY">Members only</option>
+                </select>
+                {visibility === 'MEMBERS_ONLY' && <>
+                  <label htmlFor="video-tier">Minimum membership level</label>
+                  <select id="video-tier" value={requiredTierLevel} onChange={event => setRequiredTierLevel(event.target.value)}>
+                    <option value="">Any paid tier</option>
+                    {[1, 2, 3, 4, 5].map(level => <option key={level} value={level}>Level {level} and above</option>)}
+                  </select>
+                </>}
+              </section>
+            </div>
 
-            <label htmlFor="video-visibility">Visibility</label>
-            <select id="video-visibility" value={visibility} onChange={event => setVisibility(event.target.value)}>
-              <option value="PUBLIC">Public</option>
-              <option value="UNLISTED">Unlisted (anyone with the link)</option>
-              <option value="PRIVATE">Private (only you)</option>
-              <option value="MEMBERS_ONLY">Members only</option>
-            </select>
-            {visibility === 'MEMBERS_ONLY' && <>
-              <label htmlFor="video-tier">Minimum membership level</label>
-              <select id="video-tier" value={requiredTierLevel} onChange={event => setRequiredTierLevel(event.target.value)}>
-                <option value="">Any paid tier</option>
-                {[1, 2, 3, 4, 5].map(level => <option key={level} value={level}>Level {level} and above</option>)}
-              </select>
-            </>}
+            <div className="studio-footer">
+              {error && <p className="upload-error" role="alert">{error}</p>}
+              {success && <p className="upload-success" role="status">{success}</p>}
+              {uploading && <div className="upload-progress" role="status" aria-live="polite">
+                <div className="upload-progress-label"><span>Uploading {uploadingTitle ? `"${uploadingTitle}"` : 'video'}</span><span>{uploadProgress}%</span></div>
+                <progress aria-label="Video upload progress" max="100" value={uploadProgress} />
+                <button type="button" className="upload-pause" onClick={pauseUpload}>Pause upload</button>
+              </div>}
 
-            {error && <p className="upload-error" role="alert">{error}</p>}
-            {success && <p className="upload-success" role="status">{success}</p>}
-            {uploading && <div className="upload-progress" role="status" aria-live="polite">
-              <div className="upload-progress-label"><span>Uploading {uploadingTitle ? `"${uploadingTitle}"` : 'video'}</span><span>{uploadProgress}%</span></div>
-              <progress aria-label="Video upload progress" max="100" value={uploadProgress} />
-              <button type="button" className="upload-pause" onClick={pauseUpload}>Pause upload</button>
-            </div>}
-
-            <button className="upload-submit" type="submit" disabled={uploading || sessionLoading || !activeSession || adTooLong}>
-              {uploading ? 'Posting…' : isAd ? 'Post ad' : 'Post video'}
-            </button>
+              <button className="upload-submit" type="submit" disabled={uploading || sessionLoading || !activeSession || adTooLong}>
+                {uploading ? 'Posting…' : isAd ? 'Post ad' : 'Post video'}
+              </button>
+            </div>
           </form>
         </>}
         {!sessionLoading && activeSession && openUploads.length > 0 && <section className="upload-unfinished" aria-labelledby="unfinished-heading">

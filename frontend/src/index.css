@@ -1,5 +1,4 @@
 * { box-sizing: border-box; }
-html { min-width: 320px; }
 body { margin: 0; color: #0f0f0f; background: #fff; font-family: Roboto, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
 button, input { font: inherit; }
 a { color: inherit; }

@@ -77,16 +77,15 @@ export default function Header({ session, onHome, onSearch, onCreatePage, onSele
       </div>
       <div className="search-area">
         <form className="search-form" onSubmit={submit}>
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search" aria-label="Search" />
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search videos and channels" aria-label="Search" />
           <button type="submit" aria-label="Search"><Icon name="search" /></button>
         </form>
       </div>
       <div className="header-actions">
-        <button className="icon-button create-button" onClick={openCreatePage} disabled={openingCreate}>
+        <button type="button" className="icon-button create-button" aria-label="Create" onClick={openCreatePage} disabled={openingCreate}>
           <Icon name="create" size={21} /><span>{openingCreate ? 'Checking…' : 'Create'}</span>
         </button>
         {createError && <div className="create-error" role="alert">{createError}</div>}
-        <button className="icon-button notification-button" aria-label="Notifications"><Icon name="bell" /><i /></button>
         {session ? (
           <button
             className="profile-avatar"
