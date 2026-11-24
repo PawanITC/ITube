@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: engagement-msk-config
+  namespace: itube
+data:
+  bootstrap-servers: __MSK_BOOTSTRAP_SERVERS__
