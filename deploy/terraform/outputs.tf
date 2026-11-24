@@ -39,3 +39,19 @@ output "cognito_domain" {
   description = "COGNITO_DOMAIN for identity-service: the hosted login page."
   value       = "https://${aws_cognito_user_pool_domain.itube.domain}.auth.${var.region}.amazoncognito.com"
 }
+
+output "otlp_endpoint" {
+  description = "OTLP/HTTP base URL inside the cluster; deploy/k8s/configmap.yaml appends /v1/metrics, /v1/traces and /v1/logs."
+  value       = "http://${kubernetes_service_v1.lgtm.metadata[0].name}.${kubernetes_namespace_v1.observability.metadata[0].name}.svc.cluster.local:4318"
+}
+
+output "grafana_port_forward_command" {
+  description = "Opens Grafana on http://localhost:3080 (log in with user admin and the grafana_admin_password output)."
+  value       = "kubectl -n ${kubernetes_namespace_v1.observability.metadata[0].name} port-forward svc/${kubernetes_service_v1.lgtm.metadata[0].name} 3080:3000"
+}
+
+output "grafana_admin_password" {
+  description = "Grafana admin password: terraform output -raw grafana_admin_password"
+  value       = random_password.grafana_admin.result
+  sensitive   = true
+}

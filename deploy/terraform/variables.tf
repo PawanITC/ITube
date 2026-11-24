@@ -154,3 +154,33 @@ variable "cognito_deletion_protection" {
   type        = bool
   default     = true
 }
+
+variable "observability_namespace" {
+  description = "Namespace of the OpenTelemetry backend (observability.tf). The OTLP URLs in deploy/k8s/configmap.yaml point to lgtm.<this namespace>."
+  type        = string
+  default     = "observability"
+}
+
+variable "lgtm_image" {
+  description = "Grafana LGTM image (OpenTelemetry Collector, Prometheus, Loki, Tempo, Pyroscope, Grafana). Pin a version; docker-compose.yml uses the same image."
+  type        = string
+  default     = "grafana/otel-lgtm:0.37.0"
+}
+
+variable "observability_volume_size" {
+  description = "Size in GiB of the gp3 volume holding metrics, logs, traces, profiles and Grafana's database."
+  type        = number
+  default     = 20
+}
+
+variable "observability_memory_request" {
+  description = "Memory request of the LGTM pod (counts against the node budget in deploy/README.md)."
+  type        = string
+  default     = "1Gi"
+}
+
+variable "observability_memory_limit" {
+  description = "Memory limit of the LGTM pod."
+  type        = string
+  default     = "2Gi"
+}

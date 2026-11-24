@@ -129,13 +129,6 @@ spec:
                   name: itube-secrets
                   key: internal-api-token
                   optional: true
-            # No OpenTelemetry collector in this cluster: switch the three OTLP exporters off (deploy/README.md)
-            - name: MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED
-              value: "false"
-            - name: MANAGEMENT_TRACING_EXPORT_OTLP_ENABLED
-              value: "false"
-            - name: MANAGEMENT_LOGGING_EXPORT_OTLP_ENABLED
-              value: "false"
           # Give the Service time to stop routing here before shutdown starts, so deploys drop no requests
           lifecycle:
             preStop:

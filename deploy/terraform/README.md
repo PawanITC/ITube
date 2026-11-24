@@ -12,6 +12,7 @@ account `160198385987`, region `eu-west-2`:
 | [`kubernetes.tf`](kubernetes.tf) | StorageClass `gp3` (encrypted, EBS CSI) and namespace `itube` (Pod Security: enforce `baseline`, warn/audit `restricted`) |
 | [`cognito.tf`](cognito.tf) | Cognito user pool, hosted login domain, public app client (code flow + PKCE) for "Continue with Cognito", and the ConfigMap `itube-cognito` identity-service reads ([docs/AUTH.md](../../docs/AUTH.md)) |
 | [`storage.tf`](storage.tf) | S3 media bucket `itube-media-<account id>` (private, encrypted) and the backend's Pod Identity role for it |
+| [`observability.tf`](observability.tf) | Namespace `observability` with the Grafana LGTM backend (`grafana/otel-lgtm`: OpenTelemetry Collector, Prometheus, Loki, Tempo, Pyroscope, Grafana) the services send OTLP to, a 20Gi gp3 volume for its data and a generated Grafana admin password (outputs `otlp_endpoint`, `grafana_port_forward_command`, `grafana_admin_password`; see [deploy/README.md](../README.md#opentelemetry)) |
 | [`imports.tf`](imports.tf) | Adopts the OIDC provider, deploy role and ECR repositories that were created by hand |
 
 The app itself (`deploy/k8s`) is still deployed by the workflow, not by Terraform.
@@ -98,7 +99,7 @@ The account-wide GitHub OIDC provider is read as a data source because it is sha
 ## Cost and teardown
 
 Roughly $265/month while it exists: EKS control plane ~$73, 2 x t3.large ~$140, NAT gateway ~$35 + data,
-EBS ~$14 (2 x 50Gi node disks + 45Gi of PVCs), S3 by usage (~$0.024/GB-month in eu-west-2).
+EBS ~$16 (2 x 50Gi node disks + 65Gi of PVCs, 20Gi of them for observability), S3 by usage (~$0.024/GB-month in eu-west-2).
 
 ```bash
 terraform destroy
