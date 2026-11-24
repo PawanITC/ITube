@@ -51,9 +51,9 @@ class SavedVideoTests {
         var video = catalog.add(902L, "Saved video", VideoVisibility.PUBLIC).setThumbnail(true);
         String path = "/api/saved-videos/" + video.getVideoId();
         mvc.perform(get(path).with(viewer)).andExpect(jsonPath("$.saved").value(false));
-        mvc.perform(put(path + "?userId=902").with(viewer)).andExpect(status().isNoContent());
+        mvc.perform(put(path + "?userId=902").with(viewer)).andExpect(status().isAccepted());
         Instant first = service.list(901L, 0, 20).getFirst().savedAt();
-        mvc.perform(put(path).with(viewer)).andExpect(status().isNoContent());
+        mvc.perform(put(path).with(viewer)).andExpect(status().isAccepted());
         assertThat(service.list(901L, 0, 20)).hasSize(1);
         assertThat(service.list(901L, 0, 20).getFirst().savedAt()).isEqualTo(first);
         mvc.perform(get(path).with(viewer)).andExpect(jsonPath("$.saved").value(true));
@@ -62,8 +62,8 @@ class SavedVideoTests {
                 .andExpect(jsonPath("$[0].video.title").value("Saved video"))
                 .andExpect(jsonPath("$[0].video.thumbnailUrl").value("/api/videos/" + video.getVideoId() + "/thumbnail"));
         assertThat(service.list(902L, 0, 20)).isEmpty();
-        mvc.perform(delete(path).with(viewer)).andExpect(status().isNoContent());
-        mvc.perform(delete(path).with(viewer)).andExpect(status().isNoContent());
+        mvc.perform(delete(path).with(viewer)).andExpect(status().isAccepted());
+        mvc.perform(delete(path).with(viewer)).andExpect(status().isAccepted());
         mvc.perform(get(path).with(viewer)).andExpect(jsonPath("$.saved").value(false));
     }
 
@@ -150,7 +150,7 @@ class SavedVideoTests {
         assertThat(service.status(901L, video.getVideoId()).saved()).isTrue();
         service.remove(901L, video.getVideoId());
         assertThat(service.list(901L, 0, 20)).isEmpty();
-        mvc.perform(delete("/api/saved-videos").with(viewer)).andExpect(status().isNoContent());
+        mvc.perform(delete("/api/saved-videos").with(viewer)).andExpect(status().isAccepted());
         assertThat(service.status(902L, video.getVideoId()).saved()).isTrue();
         service.clear(902L);
         assertThat(service.list(902L, 0, 20)).isEmpty();
@@ -161,7 +161,7 @@ class SavedVideoTests {
         var video = catalog.add(902L, "Saved by both", VideoVisibility.PUBLIC);
         service.save(901L, video.getVideoId());
         service.save(902L, video.getVideoId());
-        mvc.perform(delete("/api/saved-videos?userId=902").with(viewer)).andExpect(status().isNoContent());
+        mvc.perform(delete("/api/saved-videos?userId=902").with(viewer)).andExpect(status().isAccepted());
         assertThat(service.list(901L, 0, 20)).isEmpty();
         assertThat(service.list(902L, 0, 20)).hasSize(1);
     }

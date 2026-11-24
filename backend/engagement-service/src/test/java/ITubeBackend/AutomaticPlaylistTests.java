@@ -65,7 +65,7 @@ class AutomaticPlaylistTests {
         service = new AutomaticPlaylistService(history, likes, catalog, recommendations,
                 new InMemoryAutomaticPlaylistStore(clock), clock);
         AccessTokens tokens = new AccessTokens(new AuthProperties(), clock);
-        mvc = MockMvcBuilders.standaloneSetup(new AutomaticPlaylistController(service))
+        mvc = MockMvcBuilders.standaloneSetup(new AutomaticPlaylistController(service, mock(ITubeBackend.engagement.commands.CommandGateway.class)))
                 .addFilters(new AuthenticationConfig.AuthenticationFilter(tokens)).build();
         String token = tokens.issue(new SignedInUser(1L, null, null));
         viewer = request -> {

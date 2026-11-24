@@ -4,6 +4,9 @@ Open **Playlists → Made for you**. ITube generates a **For you** mix without c
 Use **Play your mix**, **View your mix**, or **Refresh recommendations**. Generated mixes are read-only;
 your manually created playlists are separate and keep their existing editing behavior.
 
+Explicit refreshes now run through Kafka and return `202 Accepted`; the UI waits for the saved snapshot.
+See [ENGAGEMENT-KAFKA.md](ENGAGEMENT-KAFKA.md) for the operation-status contract and retry behavior.
+
 ## How recommendations work
 
 This is a deterministic content-based recommender, not an external AI service or a trained model.

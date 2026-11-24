@@ -12,6 +12,7 @@ public interface PlaylistStore {
     Optional<Playlist> find(long userId, UUID playlistId);
     Stream<Playlist> newestFirst(long userId);
     boolean replace(Playlist before, Playlist after);
+    /** Removes metadata/order but retains a minimal id marker to reject late duplicate creates. */
     boolean delete(Playlist playlist);
 
     record Item(long videoId, Instant addedAt) { }

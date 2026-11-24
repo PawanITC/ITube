@@ -190,14 +190,14 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
   function recordPlaybackHistory() {
     // "playing" fires when playback really starts, including autoplay; not on loading the page.
     // Guard against repeated resume/buffering events and stale authorisation from the previous video.
-    if (!playback?.allowed || playback.videoId !== videoId || historyAttempt.current) return;
-    const attempt = {};
+    if (!playback?.allowed || playback.videoId !== videoId || historyAttempt.current?.busy || historyAttempt.current?.done) return;
+    const attempt = historyAttempt.current || { operationId: crypto.randomUUID() };
+    attempt.busy = true;
     historyAttempt.current = attempt;
-    recordWatch(videoId).catch(error => {
+    recordWatch(videoId, attempt.operationId).then(() => { attempt.done = true; }).catch(error => {
       // History is best-effort: never interrupt playback. A later playing event may retry a failure.
-      if (historyAttempt.current === attempt) historyAttempt.current = null;
       if (error.status !== 401) console.warn('Unable to save watch history.', error);
-    });
+    }).finally(() => { attempt.busy = false; });
   }
 
   useEffect(() => { viewRecordedRef.current = null; }, [videoId]);

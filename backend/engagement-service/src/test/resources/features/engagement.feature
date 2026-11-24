@@ -33,7 +33,7 @@ Feature: Watch history, likes and comments
     Given "Sam" has liked "Rust in production"
     And catalog-service is down
     When "Sam" unlikes "Rust in production"
-    Then the request is answered with status 204
+    Then the request is answered with status 202
 
   Scenario: Comments are signed with the name from the access token
     When "Sam" comments "Great talk" on "Rust in production"

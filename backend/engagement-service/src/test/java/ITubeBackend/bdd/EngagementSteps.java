@@ -80,7 +80,7 @@ public class EngagementSteps {
     public void watches(String viewer, String title) throws Exception {
         last = mvc.perform(post("/api/history").with(viewers.get(viewer)).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"videoId\":" + videos.get(title) + "}")).andReturn();
-        assertThat(last.getResponse().getStatus()).isEqualTo(201);
+        assertThat(last.getResponse().getStatus()).isEqualTo(202);
     }
 
     @Given("{string} has liked {string}")

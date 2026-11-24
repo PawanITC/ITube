@@ -100,6 +100,7 @@ server {
     location ^~ /api/liked-videos  { limit_req zone=api burst=60 nodelay; proxy_pass http://engagement; }
     location ^~ /api/saved-videos  { limit_req zone=api burst=60 nodelay; proxy_pass http://engagement; }
     location ^~ /api/playlists     { limit_req zone=api burst=60 nodelay; proxy_pass http://engagement; }
+    location ^~ /api/engagement/operations/ { limit_req zone=api burst=60 nodelay; proxy_pass http://engagement; }
 
     # ---- payments-service ----
     location ^~ /api/memberships { limit_req zone=api burst=60 nodelay; proxy_pass http://payments; }

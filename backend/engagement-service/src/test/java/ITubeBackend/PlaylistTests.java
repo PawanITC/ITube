@@ -57,15 +57,16 @@ class PlaylistTests {
     void createListRenameAndDeleteUseTheSessionOwner() throws Exception {
         mvc.perform(post("/api/playlists?userId=902").with(viewer).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"  Learning Java  \"}"))
-                .andExpect(status().isCreated()).andExpect(header().exists("Location"))
-                .andExpect(jsonPath("$.title").value("Learning Java")).andExpect(jsonPath("$.videoCount").value(0));
+                .andExpect(status().isAccepted()).andExpect(header().exists("Location"))
+                .andExpect(jsonPath("$.operationId").isString());
         var playlist = service.list(901L, 0, 20).getFirst();
+        assertThat(playlist.title()).isEqualTo("Learning Java");
         String path = "/api/playlists/" + playlist.id();
         assertThat(service.list(902L, 0, 20)).isEmpty();
         mvc.perform(get(path).with(viewer)).andExpect(status().isOk()).andExpect(jsonPath("$.videos.length()").value(0));
         mvc.perform(patch(path).with(viewer).contentType(MediaType.APPLICATION_JSON).content("{\"title\":\"Spring Boot\"}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.title").value("Spring Boot"));
-        mvc.perform(delete(path).with(viewer)).andExpect(status().isNoContent());
+                .andExpect(status().isAccepted());
+        mvc.perform(delete(path).with(viewer)).andExpect(status().isAccepted());
         mvc.perform(get(path).with(viewer)).andExpect(status().isNotFound());
     }
 
@@ -129,15 +130,15 @@ class PlaylistTests {
         var playlist = service.create(901L, "Learning");
         var video = catalog.add(902L, "Spring", VideoVisibility.PUBLIC).setThumbnail(true);
         String path = "/api/playlists/" + playlist.id() + "/videos/" + video.getVideoId();
-        mvc.perform(put(path).with(viewer)).andExpect(status().isOk()).andExpect(jsonPath("$.videoCount").value(1));
+        mvc.perform(put(path).with(viewer)).andExpect(status().isAccepted());
         var before = service.detail(901L, playlist.id(), 0, 20);
-        mvc.perform(put(path).with(viewer)).andExpect(status().isOk()).andExpect(jsonPath("$.videoCount").value(1));
+        mvc.perform(put(path).with(viewer)).andExpect(status().isAccepted());
         var after = service.detail(901L, playlist.id(), 0, 20);
         assertThat(after.playlist().version()).isEqualTo(before.playlist().version());
         assertThat(after.videos().getFirst().addedAt()).isEqualTo(before.videos().getFirst().addedAt());
         assertThat(after.videos().getFirst().video().thumbnailUrl()).isEqualTo("/api/videos/" + video.getVideoId() + "/thumbnail");
-        mvc.perform(delete(path).with(viewer)).andExpect(status().isOk()).andExpect(jsonPath("$.videoCount").value(0));
-        mvc.perform(delete(path).with(viewer)).andExpect(status().isOk());
+        mvc.perform(delete(path).with(viewer)).andExpect(status().isAccepted());
+        mvc.perform(delete(path).with(viewer)).andExpect(status().isAccepted());
         assertThat(catalog.videoAccess(video.getVideoId())).isPresent();
     }
 
@@ -151,7 +152,7 @@ class PlaylistTests {
         var before = service.detail(901L, playlist.id(), 0, 2);
         String path = "/api/playlists/" + playlist.id() + "/videos/" + third.getVideoId() + "/position";
         String body = "{\"position\":0,\"version\":\"" + before.playlist().version() + "\"}";
-        mvc.perform(put(path).with(viewer).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isOk());
+        mvc.perform(put(path).with(viewer).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isAccepted());
         mvc.perform(put(path).with(viewer).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isConflict());
         var page = service.detail(901L, playlist.id(), 0, 2);
         assertThat(page.videos()).extracting(row -> row.videoId()).containsExactly(third.getVideoId(), first.getVideoId());

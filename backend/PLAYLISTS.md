@@ -26,16 +26,19 @@ from the repo root. Use the project's normal development startup for the applica
 
 ## API
 
+Every write below now returns **202 Accepted** with an operation receipt. Completed metadata is in the
+receipt's `result`. See [ENGAGEMENT-KAFKA.md](ENGAGEMENT-KAFKA.md) for the shared asynchronous contract.
+
 All endpoints use the current session user. Another user's playlist returns 404. No owner id is accepted
 from request bodies. List and detail endpoints accept `page` (starting at zero) and `size` (1–100, default 20).
 
 | Method | Path | Body / result |
 | --- | --- | --- |
-| POST | `/api/playlists` | `{ "title": "Learning Java" }` → 201, metadata and Location |
+| POST | `/api/playlists` | `{ "title": "Learning Java" }` → 202, operation receipt and status Location |
 | GET | `/api/playlists` | Newest-created playlists first |
 | GET | `/api/playlists/{id}` | Metadata and a page of ordered videos |
 | PATCH | `/api/playlists/{id}` | `{ "title": "Spring Boot" }` → updated metadata |
-| DELETE | `/api/playlists/{id}` | Delete playlist → 204 |
+| DELETE | `/api/playlists/{id}` | Queue playlist deletion → 202 |
 | PUT | `/api/playlists/{id}/videos/{videoId}` | Append if absent → metadata |
 | DELETE | `/api/playlists/{id}/videos/{videoId}` | Remove if present → metadata |
 | PUT | `/api/playlists/{id}/videos/{videoId}/position` | `{ "position": 0, "version": "<version from detail>" }` → metadata |
@@ -48,7 +51,7 @@ Adding requires a visible video; unlisted videos and the owner's own private vid
 
 ## How the code works
 
-The flow is **React → PlaylistController → PlaylistService → PlaylistStore → ScyllaDB**.
+The write flow is **React → PlaylistController → CommandGateway → Kafka → CommandProcessor → PlaylistService → PlaylistStore → ScyllaDB**.
 
 - `PlaylistController` validates HTTP input and reads the account id from the session.
 - `PlaylistService` checks ownership/visibility, adds timestamps, prevents duplicates, applies moves,
@@ -63,8 +66,9 @@ The flow is **React → PlaylistController → PlaylistService → PlaylistStore
   `usePlaylistQueue.js` and `PlaylistQueue.jsx` provide ordered playback through `WatchPage`.
 
 The `version` is a new UUID whenever a playlist changes. A move includes the version the user saw.
-If someone edits the same playlist first, the server returns **409** and the UI asks for a refresh.
-Other edits retry against the latest row for a bounded number of attempts, preserving concurrent changes.
+If someone edits the same playlist first, validation returns **409**, or an already queued command gets a
+FAILED receipt with status 409. The UI then asks for a refresh. The consumer persists the planned version and
+checks it again when applying the change, preserving concurrent edits without replaying a move twice.
 The 500-video bound keeps each atomic update and the player queue small. There is no new JPA entity or
 PostgreSQL table, and no separate microservice is needed for Playlists.
 

@@ -1,5 +1,7 @@
+import { engagementFetch } from './engagement';
+
 async function request(path = '', options = {}) {
-  const response = await fetch(`/api/playlists${path}`, { credentials: 'include', ...options });
+  const response = await engagementFetch(`/api/playlists${path}`, { credentials: 'include', ...options });
   if (!response.ok) {
     const problem = await response.json().catch(() => null);
     const error = new Error(response.status === 401 ? 'Sign in to create and manage your playlists.'

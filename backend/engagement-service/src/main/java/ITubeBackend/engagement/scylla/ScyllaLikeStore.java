@@ -45,6 +45,14 @@ public class ScyllaLikeStore implements LikeStore {
     }
 
     @Override
+    public java.util.Optional<Like> find(long userId, long videoId) {
+        Row row = session.execute(selectLookup.bind(userId, videoId)
+                .setConsistencyLevel(DefaultConsistencyLevel.LOCAL_SERIAL)).one();
+        return row == null ? java.util.Optional.empty()
+                : java.util.Optional.of(new Like(userId, videoId, row.getInstant("liked_at")));
+    }
+
+    @Override
     public boolean likeIfAbsent(long userId, long videoId, Instant likedAt) {
         if (!session.execute(insertLookup.bind(userId, videoId, likedAt)).wasApplied()) return false;
         session.execute(BatchStatement.newInstance(DefaultBatchType.LOGGED,

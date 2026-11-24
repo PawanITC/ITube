@@ -48,6 +48,7 @@ class PlaylistScyllaTests {
                 assertThat(reopened.delete(reordered)).isTrue();
                 assertThat(reopened.replace(reordered, first)).isFalse();
                 assertThat(reopened.find(1L, original.id())).isEmpty();
+                assertThat(reopened.create(original)).isFalse(); // An old duplicate create cannot undo deletion.
                 try (var rows = reopened.newestFirst(1L)) { assertThat(rows.toList()).isEmpty(); }
             } finally {
                 session.execute(com.datastax.oss.driver.api.core.cql.SimpleStatement.newInstance("DROP KEYSPACE IF EXISTS " + keyspace).setTimeout(java.time.Duration.ofSeconds(60)));

@@ -45,6 +45,24 @@ CREATE TABLE IF NOT EXISTS {keyspace}.likes_by_video (
 );
 
 -- Saved videos use the same user-first access pattern as likes. The lookup prevents duplicates.
+-- No TTL: these receipts are the durable replay guard. Do not expire them while old records can be replayed.
+CREATE TABLE IF NOT EXISTS {keyspace}.engagement_operations (
+    user_id bigint,
+    operation_id uuid,
+    command text,
+    state text,
+    plan text,
+    http_status int,
+    message text,
+    PRIMARY KEY ((user_id, operation_id))
+);
+
+-- Monotonic CQL timestamps per user, including after consumer restarts and clock skew between pods.
+CREATE TABLE IF NOT EXISTS {keyspace}.engagement_command_clocks (
+    user_id bigint PRIMARY KEY,
+    write_micros bigint
+);
+
 CREATE TABLE IF NOT EXISTS {keyspace}.saved_video_lookup (
     user_id bigint,
     video_id bigint,
