@@ -28,3 +28,10 @@ data:
   CDN_MEDIA_BASE_URL: ""
   # One Kafka broker here; raise with the broker count (3 in production)
   ITUBE_TOPICS_REPLICAS: "1"
+  # OpenTelemetry: metrics, traces and logs go to the Grafana LGTM backend that deploy/terraform/observability.tf
+  # runs in the namespace `observability` (output otlp_endpoint). Grafana: output grafana_port_forward_command.
+  MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://lgtm.observability.svc.cluster.local:4318/v1/metrics
+  MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://lgtm.observability.svc.cluster.local:4318/v1/traces
+  MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT: http://lgtm.observability.svc.cluster.local:4318/v1/logs
+  # Tags every metric, span and log line with the environment
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=dev

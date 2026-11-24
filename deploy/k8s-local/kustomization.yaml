@@ -39,6 +39,17 @@ patches:
       - op: replace
         path: /data/FRONTEND_BASE_URL
         value: http://localhost:3000
+      # No OpenTelemetry backend in this cluster (on EKS it comes from deploy/terraform/observability.tf):
+      # switch the three OTLP exporters off so the services don't log connection errors
+      - op: add
+        path: /data/MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED
+        value: "false"
+      - op: add
+        path: /data/MANAGEMENT_TRACING_EXPORT_OTLP_ENABLED
+        value: "false"
+      - op: add
+        path: /data/MANAGEMENT_LOGGING_EXPORT_OTLP_ENABLED
+        value: "false"
   - target: { kind: StatefulSet }
     patch: |
       - op: replace

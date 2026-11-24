@@ -72,26 +72,81 @@ Two t3.large nodes (~7 GiB allocatable each), shared with the system add-ons. At
 | Data stores: ScyllaDB 1.5 GiB, Kafka 768 MiB, Postgres 512 MiB + shard 256 MiB, Redis 64 MiB | ~3.1 GiB |
 | Services: 2x identity 384 MiB, 2x catalog 512 MiB, 2x engagement 384 MiB, payments 384 MiB, transcode 768 MiB | ~3.7 GiB |
 | Edge: 2x gateway, frontend, 2x cloudflared | ~0.2 GiB |
-| **Total** | **~6.9 GiB** |
+| Observability: Grafana LGTM (namespace `observability`, limit 2 GiB) | ~1 GiB |
+| **Total** | **~7.9 GiB** |
 
-That leaves about 5 GiB for the autoscalers to add pods under load. For more, raise `node_count` in
+That leaves about 4 GiB for the autoscalers to add pods under load. For more, raise `node_count` in
 deploy/terraform or add Karpenter / the cluster autoscaler.
 
 ### OpenTelemetry
 
-The services export metrics, traces and logs over OTLP to `http://localhost:4318` by default, which does not exist
-in the cluster. Every Deployment turns the three exporters off with Spring Boot 4 properties set as environment
-variables:
+The services export metrics, traces and logs over OTLP/HTTP to the Grafana LGTM backend (the `grafana/otel-lgtm`
+image docker-compose.yml runs locally: OpenTelemetry Collector, Prometheus, Loki, Tempo, Pyroscope and Grafana).
+[`terraform/observability.tf`](terraform/observability.tf) runs it as Deployment `lgtm` in the namespace
+`observability`, with its data on a 20Gi gp3 volume. The endpoints are in the ConfigMap `itube-config`
+([`k8s/configmap.yaml`](k8s/configmap.yaml)):
 
-| Property | Env variable |
+| Env variable | Value |
 |---|---|
-| `management.otlp.metrics.export.enabled=false` | `MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED` |
-| `management.tracing.export.otlp.enabled=false` | `MANAGEMENT_TRACING_EXPORT_OTLP_ENABLED` |
-| `management.logging.export.otlp.enabled=false` | `MANAGEMENT_LOGGING_EXPORT_OTLP_ENABLED` |
+| `MANAGEMENT_OTLP_METRICS_EXPORT_URL` | `http://lgtm.observability.svc.cluster.local:4318/v1/metrics` |
+| `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT` | `.../v1/traces` |
+| `MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT` | `.../v1/logs` |
 
-Tracing itself stays enabled, so trace/span ids still appear in the console logs (and are passed between services
-on every internal call). When a collector is added, remove these variables and point the `management.*.endpoint` /
-`management.otlp.metrics.export.url` properties at it.
+Grafana is not public. Open it with a port-forward and log in as `admin`:
+
+```bash
+cd deploy/terraform
+$(terraform output -raw grafana_port_forward_command)   # then http://localhost:3080
+terraform output -raw grafana_admin_password
+```
+
+#### Opening Grafana with kubectl only
+
+1. Connect kubectl to the cluster (needs AWS credentials with access to it) and check the context:
+
+   ```bash
+   aws eks update-kubeconfig --region eu-west-2 --name eks-lab-dev
+   kubectl config current-context
+   ```
+
+2. Either set `observability` as the default namespace and port-forward:
+
+   ```bash
+   kubectl config set-context --current --namespace=observability
+   kubectl config view --minify -o jsonpath='{..namespace}'   # shows the current namespace
+   kubectl get pods                                           # the lgtm pod should be Running
+   kubectl port-forward svc/lgtm 3080:3000
+   ```
+
+   or port-forward directly without changing the default namespace:
+
+   ```bash
+   kubectl -n observability port-forward svc/lgtm 3080:3000
+   ```
+
+   Switch back to the app namespace afterwards with `kubectl config set-context --current --namespace=itube`.
+
+3. Open http://localhost:3080 (keep the port-forward running) and log in as `admin`. The password is in the Secret
+   `grafana-admin`:
+
+   ```bash
+   # bash
+   kubectl -n observability get secret grafana-admin -o jsonpath='{.data.password}' | base64 -d
+   ```
+
+   ```powershell
+   # PowerShell
+   [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String((kubectl -n observability get secret grafana-admin -o jsonpath='{.data.password}')))
+   ```
+
+On the first start the pod downloads plugins and Grafana starts last, so the port-forward can fail for a few
+minutes; check with `kubectl -n observability get pods`.
+
+Apply Terraform before (or soon after) the first deploy with these settings; until the `lgtm` Service exists the
+services just log an export error every 10 seconds. The [`k8s-local`](k8s-local) overlay has no backend and turns
+the exporters off (`MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED`, `MANAGEMENT_TRACING_EXPORT_OTLP_ENABLED` and
+`MANAGEMENT_LOGGING_EXPORT_OTLP_ENABLED` set to `false`). Tracing itself stays on there, so trace/span ids still
+appear in the console logs.
 
 ## One-time GitHub setup (repository PawanITC/ITube)
 
