@@ -59,7 +59,30 @@ function App() {
   const [channelResults, setChannelResults] = useState([]);
   const [channelsLoading, setChannelsLoading] = useState(false);
   const [channelsError, setChannelsError] = useState('');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const searchRequest = useRef(0);
+  const hasDockedSidebar = ['home', 'history', 'liked-videos', 'saved-videos', 'playlists', 'my-videos'].includes(route.page);
+
+  // The drawer is a temporary overlay: close it whenever the user navigates somewhere.
+  useEffect(() => { setDrawerOpen(false); }, [route]);
+
+  useEffect(() => {
+    if (!drawerOpen) return undefined;
+    function closeOnEscape(event) { if (event.key === 'Escape') setDrawerOpen(false); }
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [drawerOpen]);
+
+  // Pages with a docked sidebar collapse/expand it; every other page (and small screens, where the
+  // docked sidebar is hidden) slides the sidebar in as an overlay drawer instead.
+  function toggleMenu() {
+    if (hasDockedSidebar && !window.matchMedia('(max-width: 700px)').matches) {
+      setSidebarCollapsed(collapsed => !collapsed);
+    } else {
+      setDrawerOpen(open => !open);
+    }
+  }
 
   // Restore an existing server session after a page reload so signed-in-only UI (like My Videos) shows.
   useEffect(() => {
@@ -220,9 +243,23 @@ function App() {
     setRoute({ page: 'channel', channelId });
   }
 
+  const sidebarProps = {
+    onOpenPlaylists: openPlaylists,
+    onOpenSavedVideos: openSavedVideos,
+    onOpenLikedVideos: openLikedVideos,
+    activePage: route.page === 'playlists' ? 'Playlists' : route.page === 'saved-videos' ? 'Watch later' : route.page === 'liked-videos' ? 'Liked videos' : route.page === 'history' ? 'History' : route.page === 'my-videos' ? 'My Videos' : route.page === 'home' ? 'Home' : '',
+    onOpenHistory: openHistory,
+    onOpenMyVideos: openMyVideos,
+    onHome: returnHome,
+    session: activeSession,
+    onSelectChannel: openChannel,
+    onOpenMemberships: openMemberships,
+  };
+
   return (
-    <div className="app-shell" id="home">
-      {route.page !== 'auth' && <Header session={activeSession} onHome={returnHome} onSearch={handleSearch} onCreatePage={openUploadPage} onSelectChannel={openChannel} onOpenAuth={openAuth} onSignOut={handleSignOut} />}
+    <div className={sidebarCollapsed ? 'app-shell sidebar-collapsed' : 'app-shell'} id="home">
+      {route.page !== 'auth' && <Header session={activeSession} onHome={returnHome} onSearch={handleSearch} onCreatePage={openUploadPage} onSelectChannel={openChannel} onOpenAuth={openAuth} onSignOut={handleSignOut} onToggleMenu={toggleMenu} menuOpen={drawerOpen || (hasDockedSidebar && !sidebarCollapsed)} />}
+      {route.page !== 'auth' && drawerOpen && <><div className="sidebar-backdrop" onClick={() => setDrawerOpen(false)} /><Sidebar {...sidebarProps} variant="drawer" onCloseDrawer={() => setDrawerOpen(false)} /></>}
       {route.page === 'auth' ? (
         <Auth key={route.mode} mode={route.mode} onSignedIn={handleSignedIn} onSwitchMode={openAuth} onHome={returnHome} />
       ) : route.page === 'upload' ? (
@@ -240,7 +277,7 @@ function App() {
       ) : route.page === 'channel' ? (
         <ChannelPage channelId={route.channelId} onSelectVideo={openVideo} onSelectChannel={openChannel} onOpenMemberships={openMemberships} />
       ) : (
-        <><Sidebar onOpenPlaylists={openPlaylists} onOpenSavedVideos={openSavedVideos} onOpenLikedVideos={openLikedVideos} activePage={route.page === 'playlists' ? 'Playlists' : route.page === 'saved-videos' ? 'Watch later' : route.page === 'liked-videos' ? 'Liked videos' : route.page === 'history' ? 'History' : route.page === 'my-videos' ? 'My Videos' : 'Home'} onOpenHistory={openHistory} onOpenMyVideos={openMyVideos} onHome={returnHome} session={activeSession} onSelectChannel={openChannel} onOpenMemberships={openMemberships} /><main className="main-content"><nav className="mobile-library-nav" aria-label="Mobile library"><a href="/" onClick={event => { event.preventDefault(); returnHome(); }} aria-current={route.page === 'home' ? 'page' : undefined}>Home</a><a href="/history" onClick={event => { event.preventDefault(); openHistory(); }} aria-current={route.page === 'history' ? 'page' : undefined}>History</a><a href="/liked-videos" onClick={event => { event.preventDefault(); openLikedVideos(); }} aria-current={route.page === 'liked-videos' ? 'page' : undefined}>Liked videos</a><a href="/playlists" onClick={event => { event.preventDefault(); openPlaylists(); }} aria-current={route.page === 'playlists' ? 'page' : undefined}>Playlists</a><a href="/saved-videos" onClick={event => { event.preventDefault(); openSavedVideos(); }} aria-current={route.page === 'saved-videos' ? 'page' : undefined}>Watch later</a>{activeSession && <a href="/my-videos" onClick={event => { event.preventDefault(); openMyVideos(); }} aria-current={route.page === 'my-videos' ? 'page' : undefined}>My Videos</a>}</nav>{route.page === 'playlists' ? <Playlists key={`${activeSession?.userId || 'current'}:${route.playlistId || 'library'}`} playlistId={route.playlistId} onOpenPlaylist={openPlaylists} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : route.page === 'saved-videos' ? <SavedVideos key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : route.page === 'liked-videos' ? <LikedVideos key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : route.page === 'history' ? <History key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} /> : route.page === 'my-videos' ? <MyVideosPage onEditVideo={openEditVideo} /> : <div className="feed-content">{search ? <SearchResults query={search} filter={searchFilter} onFilterChange={setSearchFilter} videos={visibleVideos} videosLoading={videosLoading} videosError={videosError} channels={channelResults} channelsLoading={channelsLoading} channelsError={channelsError} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : <VideoGrid videos={visibleVideos} loading={videosLoading} error={videosError} onSelectVideo={openVideo} onSelectChannel={openChannel} />}</div>}</main></>
+        <><Sidebar {...sidebarProps} /><main className="main-content"><nav className="mobile-library-nav" aria-label="Mobile library"><a href="/" onClick={event => { event.preventDefault(); returnHome(); }} aria-current={route.page === 'home' ? 'page' : undefined}>Home</a><a href="/history" onClick={event => { event.preventDefault(); openHistory(); }} aria-current={route.page === 'history' ? 'page' : undefined}>History</a><a href="/liked-videos" onClick={event => { event.preventDefault(); openLikedVideos(); }} aria-current={route.page === 'liked-videos' ? 'page' : undefined}>Liked videos</a><a href="/playlists" onClick={event => { event.preventDefault(); openPlaylists(); }} aria-current={route.page === 'playlists' ? 'page' : undefined}>Playlists</a><a href="/saved-videos" onClick={event => { event.preventDefault(); openSavedVideos(); }} aria-current={route.page === 'saved-videos' ? 'page' : undefined}>Watch later</a>{activeSession && <a href="/my-videos" onClick={event => { event.preventDefault(); openMyVideos(); }} aria-current={route.page === 'my-videos' ? 'page' : undefined}>My Videos</a>}</nav>{route.page === 'playlists' ? <Playlists key={`${activeSession?.userId || 'current'}:${route.playlistId || 'library'}`} playlistId={route.playlistId} onOpenPlaylist={openPlaylists} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : route.page === 'saved-videos' ? <SavedVideos key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : route.page === 'liked-videos' ? <LikedVideos key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : route.page === 'history' ? <History key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} /> : route.page === 'my-videos' ? <MyVideosPage onEditVideo={openEditVideo} /> : <div className="feed-content">{search ? <SearchResults query={search} filter={searchFilter} onFilterChange={setSearchFilter} videos={visibleVideos} videosLoading={videosLoading} videosError={videosError} channels={channelResults} channelsLoading={channelsLoading} channelsError={channelsError} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : <VideoGrid videos={visibleVideos} loading={videosLoading} error={videosError} onSelectVideo={openVideo} onSelectChannel={openChannel} />}</div>}</main></>
       )}
     </div>
   );

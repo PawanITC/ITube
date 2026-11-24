@@ -125,6 +125,25 @@ ALTER TABLE catalog.upload_session ADD COLUMN IF NOT EXISTS ads_enabled BOOLEAN 
 ALTER TABLE catalog.video ADD COLUMN IF NOT EXISTS ad_count INT NOT NULL DEFAULT 1;
 ALTER TABLE catalog.upload_session ADD COLUMN IF NOT EXISTS ad_count INT NOT NULL DEFAULT 1;
 
+-- Optional description entered at upload (videos and ads alike), and how many times the video has been watched
+ALTER TABLE catalog.video ADD COLUMN IF NOT EXISTS description VARCHAR(5000);
+ALTER TABLE catalog.video ADD COLUMN IF NOT EXISTS view_count BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE catalog.upload_session ADD COLUMN IF NOT EXISTS description VARCHAR(5000);
+
+-- Who has viewed each video or ad, so view_count counts each viewer once. viewer_key is 'user:<account id>' for
+-- signed-in viewers, or 'anon:<random id kept in the browser>'. Same shard as the video; goes with it on delete.
+CREATE TABLE IF NOT EXISTS catalog.video_view (
+    video_id BIGINT NOT NULL REFERENCES catalog.video (video_id) ON DELETE CASCADE,
+    viewer_key VARCHAR(64) NOT NULL,
+    viewed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (video_id, viewer_key)
+);
+
+-- HLS backfill (HlsBackfillJob): videos from before HLS are re-transcoded in small batches, with their own attempt
+-- count so a source that can't be converted is given up on without affecting the video (it keeps its MP4 files)
+ALTER TABLE catalog.video ADD COLUMN IF NOT EXISTS hls_backfill_attempts INT NOT NULL DEFAULT 0;
+ALTER TABLE catalog.video ADD COLUMN IF NOT EXISTS hls_backfill_requested_at TIMESTAMP WITH TIME ZONE;
+
 -- Shard directory: which logical shard each creator lives on. Only used on physical shard 0 (OwnerDirectory);
 -- created everywhere so every catalog database has the same schema.
 CREATE TABLE IF NOT EXISTS catalog.owner_shard (

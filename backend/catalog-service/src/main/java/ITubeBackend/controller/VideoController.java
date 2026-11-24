@@ -2,6 +2,7 @@ package ITubeBackend.controller;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
 import ITubeBackend.dto.video.*;
+import ITubeBackend.entities.VideoType;
 import ITubeBackend.entities.VideoVisibility;
 import ITubeBackend.security.CurrentUser;
 import ITubeBackend.service.video.VideoService;
@@ -36,7 +37,8 @@ public class VideoController {
             @RequestParam("title") String title,
             @RequestParam("duration") @DateTimeFormat(iso = DateTimeFormat.ISO.TIME) LocalTime duration,
             @RequestParam(value = "visibility", defaultValue = "PUBLIC") VideoVisibility visibility,
-            @RequestParam(value = "requiredTierLevel", required = false) Integer requiredTierLevel) {
+            @RequestParam(value = "requiredTierLevel", required = false) Integer requiredTierLevel,
+            @RequestParam(value = "description", required = false) String description) {
         Long channelId = CurrentUser.channelId().orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sign in with a channel before uploading"));
         if (file.isEmpty()) {
@@ -48,7 +50,8 @@ public class VideoController {
         MediaUpload thumbnailUpload = thumbnail == null || thumbnail.isEmpty() ? null
                 : new MediaUpload(thumbnail, thumbnail.getSize(), thumbnail.getContentType());
         // Streamed from the multipart temp file to object storage; never held in memory
-        videoService.saveVideo(new CreateVideo(channelId, video, thumbnailUpload, title, duration, visibility, requiredTierLevel));
+        videoService.saveVideo(new CreateVideo(channelId, video, thumbnailUpload, title, duration, visibility, requiredTierLevel,
+                VideoType.VIDEO, false, null, description));
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
 
@@ -101,9 +104,56 @@ public class VideoController {
         return videoService.getQualities(videoId);
     }
 
+    @GetMapping("/api/videos/{videoId}/quality-levels")
+    public List<QualityLevelDto> getQualityLevels(@PathVariable Long videoId) {
+        return videoService.getQualityLevels(videoId);
+    }
+
+    /** Largest bandwidth probe the player may ask for. */
+    static final int MAX_PROBE_BYTES = 1024 * 1024;
+    /** Random, so gzip on the way can't shrink it and make the connection look faster than it is. */
+    private static final byte[] PROBE_BYTES = new byte[MAX_PROBE_BYTES];
+    static {
+        new java.util.Random(42).nextBytes(PROBE_BYTES);
+    }
+
+    /**
+     * Bytes for the player to time, to estimate the viewer's connection to ITube and choose a video quality.
+     * Never cached anywhere, or the timing would measure the cache instead.
+     */
+    @GetMapping("/api/videos/bandwidth-probe")
+    public ResponseEntity<byte[]> bandwidthProbe(@RequestParam(value = "bytes", defaultValue = "262144") int bytes) {
+        int size = Math.max(1024, Math.min(bytes, MAX_PROBE_BYTES));
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .body(java.util.Arrays.copyOf(PROBE_BYTES, size));
+    }
+
     @GetMapping("/api/videos/{videoId}/playback-authorisation")
     public PlaybackAuthorisationDto authorisePlayback(@PathVariable Long videoId) {
         return videoService.authorisePlayback(videoId, CurrentUser.find().orElse(null));
+    }
+
+    /** Description, view count and upload time, shown under the player. Never cached: the count keeps changing. */
+    @GetMapping("/api/videos/{videoId}/details")
+    public ResponseEntity<VideoDetailsDto> details(@PathVariable Long videoId) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(videoService.getDetails(videoId, CurrentUser.find().orElse(null)));
+    }
+
+    public record ViewResult(boolean counted) {
+    }
+
+    /**
+     * The player calls this when a video or ad starts playing. Each viewer counts once: signed-in viewers by account,
+     * others by the random id their browser sends in X-Viewer-Id. {@code counted} says whether this one was new.
+     */
+    @PostMapping("/api/videos/{videoId}/views")
+    public ResponseEntity<ViewResult> recordView(@PathVariable Long videoId,
+                                                 @RequestHeader(value = "X-Viewer-Id", required = false) String viewerId) {
+        boolean counted = videoService.recordView(videoId, CurrentUser.find().orElse(null), viewerId);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(new ViewResult(counted));
     }
 
     /** The ads to play during this video (by default one at the midpoint); empty if it has none. Chosen per view. */
@@ -125,6 +175,38 @@ public class VideoController {
                                                @RequestHeader(value = HttpHeaders.RANGE, required = false) String range) {
         boolean openToEveryone = videoService.assertCanStream(videoId, token);
         return videoService.serveMedia(videoService.getRenditionKey(videoId, quality), range, openToEveryone, true);
+    }
+
+    /** Adaptive streaming entry point: the qualities the player may switch between, segment by segment. */
+    @GetMapping("/api/videos/{videoId}/hls/master.m3u8")
+    public ResponseEntity<String> hlsMaster(@PathVariable Long videoId,
+                                            @RequestParam(value = "token", required = false) String token) {
+        boolean openToEveryone = videoService.assertCanStream(videoId, token);
+        return playlist(videoService.hlsMasterPlaylist(videoId, token), openToEveryone);
+    }
+
+    @GetMapping("/api/videos/{videoId}/hls/{quality}/index.m3u8")
+    public ResponseEntity<String> hlsMediaPlaylist(@PathVariable Long videoId, @PathVariable String quality,
+                                                   @RequestParam(value = "token", required = false) String token) {
+        boolean openToEveryone = videoService.assertCanStream(videoId, token);
+        return playlist(videoService.hlsMediaPlaylist(videoId, quality, token), openToEveryone);
+    }
+
+    /** One segment: checked like any other video file, then redirected to the CDN or storage. */
+    @GetMapping("/api/videos/{videoId}/hls/{quality}/{file}")
+    public ResponseEntity<byte[]> hlsSegment(@PathVariable Long videoId, @PathVariable String quality, @PathVariable String file,
+                                             @RequestParam(value = "token", required = false) String token,
+                                             @RequestHeader(value = HttpHeaders.RANGE, required = false) String range) {
+        boolean openToEveryone = videoService.assertCanStream(videoId, token);
+        return videoService.serveMedia(videoService.getHlsSegmentKey(videoId, quality, file), range, openToEveryone, true);
+    }
+
+    private static ResponseEntity<String> playlist(String body, boolean openToEveryone) {
+        // Paid or private playlists carry the viewer's token, so they must never be shared by a cache
+        CacheControl cache = openToEveryone ? CacheControl.maxAge(Duration.ofSeconds(60)).cachePublic()
+                : CacheControl.noStore().cachePrivate();
+        return ResponseEntity.ok().cacheControl(cache)
+                .contentType(MediaType.parseMediaType(ITubeBackend.storage.HlsPlaylist.CONTENT_TYPE)).body(body);
     }
 
     @GetMapping("/api/videos/{videoId}/file")

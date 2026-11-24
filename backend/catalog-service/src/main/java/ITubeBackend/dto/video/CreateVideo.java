@@ -6,11 +6,18 @@ import java.time.LocalTime;
 
 /**
  * thumbnail may be null. videoType null means VIDEO; adsEnabled and adCount only apply to VIDEO.
- * adCount null means one ad.
+ * adCount null means one ad. description is optional (null or blank means none).
  */
 public record CreateVideo(Long channelId, MediaUpload video, MediaUpload thumbnail, String title, LocalTime duration,
                           VideoVisibility visibility, Integer requiredTierLevel, VideoType videoType,
-                          boolean adsEnabled, Integer adCount) {
+                          boolean adsEnabled, Integer adCount, String description) {
+
+    /** Without a description. */
+    public CreateVideo(Long channelId, MediaUpload video, MediaUpload thumbnail, String title, LocalTime duration,
+                       VideoVisibility visibility, Integer requiredTierLevel, VideoType videoType,
+                       boolean adsEnabled, Integer adCount) {
+        this(channelId, video, thumbnail, title, duration, visibility, requiredTierLevel, videoType, adsEnabled, adCount, null);
+    }
 
     /** A normal video without ads. */
     public CreateVideo(Long channelId, MediaUpload video, MediaUpload thumbnail, String title, LocalTime duration,

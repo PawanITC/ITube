@@ -1,8 +1,10 @@
 package ITubeBackend.repository;
 
 import ITubeBackend.dto.video.AdCandidate;
+import ITubeBackend.dto.video.QualityLevelDto;
 import ITubeBackend.dto.video.RenditionRef;
 import ITubeBackend.dto.video.VideoAccessDto;
+import ITubeBackend.dto.video.VideoDetailsDto;
 import ITubeBackend.dto.video.VideoMediaDto;
 import ITubeBackend.dto.video.VideoRow;
 import ITubeBackend.dto.video.VideoSummaryDto;
@@ -85,6 +87,19 @@ public interface VideoRepository extends JpaRepository<VideoEntity, Long> {
             "(v.transcodeRequestedAt is null or v.transcodeRequestedAt < :cutoff) order by v.videoId")
     List<VideoEntity> findStuckProcessing(@Param("cutoff") OffsetDateTime cutoff, Limit limit);
 
+    /**
+     * HlsBackfillJob: READY videos with a source but no HLS rendition yet (MP4 renditions from before HLS, or none),
+     * not given up on and not queued within the last retry period. Oldest first.
+     */
+    @Query(value = "select v.video_id from catalog.video v where v.processing_status = 'READY' and v.video_key is not null " +
+            "and v.hls_backfill_attempts < :maxAttempts " +
+            "and (v.hls_backfill_requested_at is null or v.hls_backfill_requested_at < :retryBefore) " +
+            "and not exists (select 1 from catalog.video_rendition r where r.video_id = v.video_id " +
+            "and r.storage_key like '%.m3u8') order by v.video_id limit :batchSize", nativeQuery = true)
+    List<Long> findHlsBackfillCandidates(@Param("maxAttempts") int maxAttempts,
+                                         @Param("retryBefore") OffsetDateTime retryBefore,
+                                         @Param("batchSize") int batchSize);
+
     // Renditions go with it via ON DELETE CASCADE; the stored files are removed by the video.deleted consumer
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("delete from VideoEntity v where v.videoId = :videoId")
@@ -94,6 +109,26 @@ public interface VideoRepository extends JpaRepository<VideoEntity, Long> {
             "from VideoEntity v where v.videoId = :videoId")
     Optional<VideoAccessDto> findAccess(@Param("videoId") Long videoId);
 
+    @Query("select new ITubeBackend.dto.video.VideoDetailsDto(v.videoId, v.description, v.viewCount, v.createdAt) " +
+            "from VideoEntity v where v.videoId = :videoId")
+    Optional<VideoDetailsDto> findDetails(@Param("videoId") Long videoId);
+
+    /**
+     * Remembers that this viewer has seen the video. Returns 1 the first time and 0 after that, so each viewer is
+     * counted once. (Portable SQL, no ON CONFLICT, so it runs on H2 too; two racing requests from one viewer hit the
+     * primary key instead, which VideoService treats as "already counted".)
+     */
+    @Modifying
+    @Query(value = "insert into catalog.video_view (video_id, viewer_key) select :videoId, :viewerKey " +
+            "where not exists (select 1 from catalog.video_view where video_id = :videoId and viewer_key = :viewerKey)",
+            nativeQuery = true)
+    int recordViewer(@Param("videoId") Long videoId, @Param("viewerKey") String viewerKey);
+
+    /** One more view, counted in the database so concurrent views on several pods are never lost. */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update VideoEntity v set v.viewCount = v.viewCount + 1 where v.videoId = :videoId")
+    int incrementViewCount(@Param("videoId") Long videoId);
+
     @Query("select new ITubeBackend.dto.video.VideoMediaDto(v.videoKey, v.videoContentType, v.thumbnailKey, v.thumbnailContentType) " +
             "from VideoEntity v where v.videoId = :videoId")
     Optional<VideoMediaDto> findMedia(@Param("videoId") Long videoId);
@@ -101,6 +136,13 @@ public interface VideoRepository extends JpaRepository<VideoEntity, Long> {
     @Query(value = "select quality from catalog.video_rendition where video_id = :videoId and storage_key is not null " +
             "order by case quality when '360p' then 1 when '720p' then 2 else 3 end", nativeQuery = true)
     List<String> findRenditionQualities(@Param("videoId") Long videoId);
+
+    /** Lowest quality first, like findRenditionQualities, with each file's size. */
+    @Query(value = "select quality as \"quality\", size_bytes as \"sizeBytes\", " +
+            "case when storage_key like '%.m3u8' then 'hls' else 'mp4' end as \"format\" from catalog.video_rendition " +
+            "where video_id = :videoId and storage_key is not null " +
+            "order by case quality when '360p' then 1 when '720p' then 2 else 3 end", nativeQuery = true)
+    List<QualityLevelDto> findQualityLevels(@Param("videoId") Long videoId);
 
     @Query(value = "select storage_key as \"storageKey\", content_type as \"contentType\" from catalog.video_rendition " +
             "where video_id = :videoId and quality = :quality and storage_key is not null", nativeQuery = true)

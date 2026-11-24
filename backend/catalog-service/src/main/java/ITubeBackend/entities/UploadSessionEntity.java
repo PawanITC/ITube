@@ -63,6 +63,9 @@ public class UploadSessionEntity {
     @Column(name = "duration", nullable = false)
     private LocalTime duration;
 
+    @Column(name = "description", length = 5000)
+    private String description;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "visibility", nullable = false, length = 20)
     private VideoVisibility visibility;
@@ -113,6 +116,8 @@ public class UploadSessionEntity {
         this.requiredTierLevel = requiredTierLevel;
     }
 
+    public void setDescription(String description) { this.description = description; }
+
     public void setType(VideoType videoType, boolean adsEnabled, int adCount) {
         this.videoType = videoType;
         this.adsEnabled = adsEnabled;
@@ -144,6 +149,7 @@ public class UploadSessionEntity {
     public long getPartSize() { return partSize; }
     public String getTitle() { return title; }
     public LocalTime getDuration() { return duration; }
+    public String getDescription() { return description; }
     public VideoVisibility getVisibility() { return visibility; }
     public Integer getRequiredTierLevel() { return requiredTierLevel; }
     public VideoType getVideoType() { return videoType; }

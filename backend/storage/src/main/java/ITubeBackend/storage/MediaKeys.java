@@ -23,8 +23,18 @@ public final class MediaKeys {
         return folder + "thumbnail-" + UUID.randomUUID();
     }
 
+    /** Legacy single-file renditions (before HLS); still played for videos transcoded back then. */
     public static String rendition(String folder, String quality) {
         return folder + "renditions/" + quality + ".mp4";
+    }
+
+    /** One quality's HLS files: index.m3u8, init.mp4 and seg_00001.m4s... */
+    public static String hlsFolder(String folder, String quality) {
+        return folder + "hls/" + quality + "/";
+    }
+
+    public static String hlsPlaylist(String folder, String quality) {
+        return hlsFolder(folder, quality) + HlsPlaylist.FILE_NAME;
     }
 
     /** "videos/{uuid}/source" -> "videos/{uuid}/" */

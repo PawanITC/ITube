@@ -56,6 +56,14 @@ public class VideoEntity implements Persistable<Long> {
     @Column(name = "duration", nullable = false)
     private LocalTime duration;
 
+    /** Optional; null when the uploader left it empty. */
+    @Column(name = "description", length = 5000)
+    private String description;
+
+    /** Only ever incremented in the database (VideoRepository.incrementViewCount), never written from here. */
+    @Column(name = "view_count", nullable = false, insertable = false, updatable = false)
+    private long viewCount;
+
     @Column(name = "processing_status", nullable = false, length = 20)
     private String processingStatus = "PROCESSING";
 
@@ -87,6 +95,13 @@ public class VideoEntity implements Persistable<Long> {
     @Column(name = "transcode_requested_at")
     private OffsetDateTime transcodeRequestedAt;
 
+    /** HlsBackfillJob: how often this pre-HLS video was queued for HLS transcoding, and when last. */
+    @Column(name = "hls_backfill_attempts", nullable = false)
+    private int hlsBackfillAttempts;
+
+    @Column(name = "hls_backfill_requested_at")
+    private OffsetDateTime hlsBackfillRequestedAt;
+
     public VideoEntity() {
     }
 
@@ -113,6 +128,7 @@ public class VideoEntity implements Persistable<Long> {
     public void setThumbnailContentType(String thumbnailContentType) { this.thumbnailContentType = thumbnailContentType; }
     public void setTitle(String title) { this.title = title; }
     public void setDuration(LocalTime duration) { this.duration = duration; }
+    public void setDescription(String description) { this.description = description; }
     public void setProcessingStatus(String processingStatus) { this.processingStatus = processingStatus; }
     public void setVisibility(VideoVisibility visibility) { this.visibility = visibility; }
     public void setRequiredTierLevel(Integer requiredTierLevel) { this.requiredTierLevel = requiredTierLevel; }
@@ -122,6 +138,8 @@ public class VideoEntity implements Persistable<Long> {
     public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
     public void setTranscodeAttempts(int transcodeAttempts) { this.transcodeAttempts = transcodeAttempts; }
     public void setTranscodeRequestedAt(OffsetDateTime transcodeRequestedAt) { this.transcodeRequestedAt = transcodeRequestedAt; }
+    public void setHlsBackfillAttempts(int hlsBackfillAttempts) { this.hlsBackfillAttempts = hlsBackfillAttempts; }
+    public void setHlsBackfillRequestedAt(OffsetDateTime hlsBackfillRequestedAt) { this.hlsBackfillRequestedAt = hlsBackfillRequestedAt; }
 
     public Long getVideoId() { return videoId; }
     public String getVideoKey() { return videoKey; }
@@ -131,6 +149,8 @@ public class VideoEntity implements Persistable<Long> {
     public String getVideoContentType() { return videoContentType; }
     public String getTitle() { return title; }
     public LocalTime getDuration() { return duration; }
+    public String getDescription() { return description; }
+    public long getViewCount() { return viewCount; }
     public ChannelEntity getChannel() { return channel; }
     public String getProcessingStatus() { return processingStatus; }
     public VideoVisibility getVisibility() { return visibility; }
@@ -141,4 +161,6 @@ public class VideoEntity implements Persistable<Long> {
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public int getTranscodeAttempts() { return transcodeAttempts; }
     public OffsetDateTime getTranscodeRequestedAt() { return transcodeRequestedAt; }
+    public int getHlsBackfillAttempts() { return hlsBackfillAttempts; }
+    public OffsetDateTime getHlsBackfillRequestedAt() { return hlsBackfillRequestedAt; }
 }
