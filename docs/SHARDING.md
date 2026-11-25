@@ -114,9 +114,7 @@ shard bits keep their ids apart.
 ## Schema
 
 Every shard has the same schema ([schema-catalog.sql](../backend/catalog-service/src/main/resources/schema-catalog.sql)),
-applied by catalog-service to each database at startup (idempotent). Database 0 first runs
-[schema-catalog-migrate.sql](../backend/catalog-service/src/main/resources/schema-catalog-migrate.sql), which moves
-tables from before the domain split.
+applied by catalog-service to each database at startup (idempotent).
 
 ## Configuration
 

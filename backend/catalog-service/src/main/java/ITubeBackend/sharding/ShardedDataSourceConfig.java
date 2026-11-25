@@ -16,7 +16,6 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -77,7 +76,7 @@ public class ShardedDataSourceConfig {
     public record ShardDatabases(Map<Integer, DataSource> pools, Map<Integer, Boolean> postgres) {
     }
 
-    /** Runs the idempotent catalog scripts on one database; returns whether it is PostgreSQL. */
+    /** Runs the idempotent catalog schema on one database; returns whether it is PostgreSQL. */
     private static boolean initialiseSchema(int shard, DataSource dataSource) {
         boolean isPostgres;
         try (Connection connection = dataSource.getConnection()) {
@@ -85,13 +84,7 @@ public class ShardedDataSourceConfig {
         } catch (SQLException exception) {
             throw new IllegalStateException("Catalog shard " + shard + " is unreachable at startup", exception);
         }
-        ResourceDatabasePopulator populator = new ResourceDatabasePopulator();
-        // Only the original database can hold tables from before the domain split
-        List<String> scripts = isPostgres && shard == 0
-                ? List.of("schema-catalog-migrate.sql", "schema-catalog.sql")
-                : List.of("schema-catalog.sql");
-        scripts.forEach(script -> populator.addScript(new ClassPathResource(script)));
-        populator.execute(dataSource);
+        new ResourceDatabasePopulator(new ClassPathResource("schema-catalog.sql")).execute(dataSource);
         return isPostgres;
     }
 }

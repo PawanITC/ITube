@@ -23,13 +23,12 @@ its own database is a configuration change plus a data copy.
 
 ## Where things are defined
 
-Each service creates and upgrades its own schema on start (idempotent scripts):
+Each service creates its own schema on start (idempotent `CREATE ... IF NOT EXISTS` scripts, written for a fresh
+database: there are no upgrade steps for databases from before the domain split):
 
 - identity: [schema-identity.sql](../backend/identity-service/src/main/resources/schema-identity.sql)
 - payments: [schema-payments.sql](../backend/payments-service/src/main/resources/schema-payments.sql)
-- catalog, on every shard: [schema-catalog.sql](../backend/catalog-service/src/main/resources/schema-catalog.sql);
-  on shard 0 first [schema-catalog-migrate.sql](../backend/catalog-service/src/main/resources/schema-catalog-migrate.sql)
-  (moves tables out of the old `public` schema)
+- catalog, on every shard: [schema-catalog.sql](../backend/catalog-service/src/main/resources/schema-catalog.sql)
 - ScyllaDB: [engagement.cql](../backend/engagement-service/src/main/resources/scylla/engagement.cql), applied on startup
   when `itube.scylla.create-schema=true`. One table per query:
   - `watch_history_by_user` partition `user_id`, newest first by `entry_id` (a timeuuid, also the public id)
@@ -65,21 +64,6 @@ Each service creates and upgrades its own schema on start (idempotent scripts):
   pre-signed URL, or for public media to the CDN when it's configured. Set `itube.storage.redirect-playback=false` to
   stream through the service instead (used by the local Kubernetes overlay `deploy/k8s-local`, where browsers can't
   reach SeaweedFS).
-
-## Upgrading an existing database
-
-Nothing to do by hand. On the first start of this version:
-
-1. Each service moves its own old `public` tables into its schema (identity, payments, and catalog on shard 0, which
-   also moves `watch_history`, `liked_video`, `video_comment` into `legacy_engagement`).
-2. catalog-service's `LegacyMediaMigration` copies video, thumbnail and rendition bytes from Postgres to object storage
-   and empties those columns; engagement-service's `LegacyEngagementMigration` copies the legacy engagement tables to
-   ScyllaDB and renames them `*_copied`. Both are safe to run on several instances at once and to re-run
-   (`itube.migration.legacy-data`).
-3. catalog-service records every existing creator in the shard directory (logical shard 0) and gives existing videos a
-   `created_at`. Existing ids are unchanged.
-4. When every environment has migrated, drop `legacy_engagement.*_copied` and the unused byte columns
-   (`catalog.video.video`, `catalog.video.thumbnail`, `catalog.video_rendition.content`).
 
 ## API changes for the frontend
 
