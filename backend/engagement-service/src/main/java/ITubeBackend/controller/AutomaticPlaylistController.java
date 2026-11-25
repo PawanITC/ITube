@@ -1,6 +1,9 @@
 package ITubeBackend.controller;
 
 import ITubeBackend.dto.playlists.AutomaticPlaylistResponse;
+import ITubeBackend.dto.engagement.OperationResponse;
+import ITubeBackend.engagement.commands.CommandGateway;
+import ITubeBackend.engagement.commands.EngagementCommand.Action;
 import ITubeBackend.security.CurrentUser;
 import ITubeBackend.service.playlists.AutomaticPlaylistService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -14,8 +17,9 @@ import java.util.UUID;
 @Tag(name = "Automatic playlists", description = "Personalized mixes generated from the signed-in user's engagement")
 public class AutomaticPlaylistController {
     private final AutomaticPlaylistService service;
+    private final CommandGateway commands;
 
-    public AutomaticPlaylistController(AutomaticPlaylistService service) { this.service = service; }
+    public AutomaticPlaylistController(AutomaticPlaylistService service, CommandGateway commands) { this.service = service; this.commands = commands; }
 
     @GetMapping
     public ResponseEntity<AutomaticPlaylistResponse> current() {
@@ -23,8 +27,8 @@ public class AutomaticPlaylistController {
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<AutomaticPlaylistResponse> refresh() {
-        return response(service.current(CurrentUser.require(), true));
+    public ResponseEntity<OperationResponse> refresh(@RequestHeader(value = "Idempotency-Key", required = false) String key) {
+        return commands.submit(CurrentUser.require(), key, Action.AUTOMATIC_REFRESH, null, null, null, null, null);
     }
 
     @GetMapping("/{id}")

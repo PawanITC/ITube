@@ -1,4 +1,5 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { setEngagementAccount } from './api/engagement';
 import Header from './components/Header';
 import History from './pages/History';
 import LikedVideos from './pages/LikedVideos';
@@ -52,6 +53,7 @@ function App() {
   const [route, setRoute] = useState(readRoute);
   const [uploadSession, setUploadSession] = useState(null);
   const [activeSession, setActiveSession] = useState(null);
+  useLayoutEffect(() => { setEngagementAccount(activeSession?.userId); }, [activeSession?.userId]);
   const [search, setSearch] = useState('');
   const [videos, setVideos] = useState([]);
   const [videosLoading, setVideosLoading] = useState(true);

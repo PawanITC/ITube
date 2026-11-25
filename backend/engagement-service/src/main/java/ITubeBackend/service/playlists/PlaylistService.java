@@ -8,6 +8,7 @@ import ITubeBackend.engagement.PlaylistStore;
 import ITubeBackend.engagement.PlaylistStore.Item;
 import ITubeBackend.engagement.PlaylistStore.Playlist;
 import ITubeBackend.engagement.TimeUuids;
+import ITubeBackend.engagement.commands.EngagementCommand;
 import ITubeBackend.entities.VideoVisibility;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -21,6 +22,69 @@ import java.util.function.UnaryOperator;
 
 @Service
 public class PlaylistService {
+    public record PreparedPlaylist(Playlist before, Playlist after) { }
+
+    /** Pure planning: the consumer persists this snapshot before attempting a conditional write. */
+    public PreparedPlaylist prepare(EngagementCommand command) {
+        long user = command.userId();
+        var now = command.occurredAt();
+        if (command.action() == EngagementCommand.Action.PLAYLIST_CREATE) {
+            return new PreparedPlaylist(null, new Playlist(command.resourceId(), user, title(command.title()),
+                    now, now, command.operationId(), List.of()));
+        }
+        Playlist before = owned(user, command.resourceId());
+        String name = before.title();
+        var items = new ArrayList<>(before.items());
+        switch (command.action()) {
+            case PLAYLIST_DELETE -> { return new PreparedPlaylist(before, null); }
+            case PLAYLIST_RENAME -> name = title(command.title());
+            case PLAYLIST_ADD -> {
+                positive(command.videoId());
+                var video = catalog.videoAccess(command.videoId())
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Video not found"));
+                if (video.visibility() == VideoVisibility.PRIVATE && !Long.valueOf(user).equals(video.ownerUserId())) {
+                    throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Video not found");
+                }
+                if (items.stream().noneMatch(item -> item.videoId() == command.videoId())) {
+                    if (items.size() >= MAX_VIDEOS) throw new ResponseStatusException(HttpStatus.CONFLICT, "A playlist can contain up to 500 videos");
+                    items.add(new Item(command.videoId(), now));
+                }
+            }
+            case PLAYLIST_REMOVE -> { positive(command.videoId()); items.removeIf(item -> item.videoId() == command.videoId()); }
+            case PLAYLIST_MOVE -> {
+                positive(command.videoId());
+                if (!before.version().equals(command.expectedVersion())) throw conflict();
+                if (command.position() == null || command.position() < 0 || command.position() >= items.size()) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Position is outside this playlist");
+                }
+                Item item = items.stream().filter(value -> value.videoId() == command.videoId()).findFirst()
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Video is not in this playlist"));
+                items.remove(item); items.add(command.position(), item);
+            }
+            default -> throw new IllegalArgumentException("Not a playlist command");
+        }
+        if (name.equals(before.title()) && items.equals(before.items())) return new PreparedPlaylist(before, before);
+        return new PreparedPlaylist(before, new Playlist(before.id(), user, name, before.createdAt(), now,
+                command.operationId(), items));
+    }
+
+    /** Reuses the saved version after restart; a duplicate move cannot move the video a second time. */
+    public void applyPrepared(Playlist before, Playlist after) {
+        Playlist target = after == null ? before : after;
+        var current = store.find(target.userId(), target.id());
+        if (after == null) {
+            if (current.isEmpty()) return;
+            if (!current.get().version().equals(before.version()) || !store.delete(before)) throw conflict();
+        } else if (before == null) {
+            if (current.isPresent() && current.get().version().equals(after.version())) return;
+            if (!store.create(after)) throw conflict();
+        } else {
+            if (current.isPresent() && current.get().version().equals(after.version())) return;
+            if (current.isEmpty() || !current.get().version().equals(before.version()) || !store.replace(before, after)) throw conflict();
+        }
+    }
+
+    public PlaylistResponse preparedResponse(Playlist value) { return response(value); }
     // Bounding the row keeps conditional order updates and playback queues small.
     public static final int MAX_VIDEOS = 500;
     private final PlaylistStore store;

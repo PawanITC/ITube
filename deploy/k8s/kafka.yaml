@@ -87,7 +87,7 @@ spec:
             # would reject as an invalid partition directory
             - name: KAFKA_LOG_DIRS
               value: /var/lib/kafka/data/kraft-combined-logs
-            # Keep the 5Gi volume bounded (5 topics x 3 partitions)
+            # Per-partition limits bound disk usage; engagement topics also declare explicit retention limits.
             - name: KAFKA_LOG_RETENTION_HOURS
               value: "24"
             - name: KAFKA_LOG_RETENTION_BYTES

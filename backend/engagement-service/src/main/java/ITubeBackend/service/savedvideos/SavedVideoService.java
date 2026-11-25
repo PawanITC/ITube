@@ -29,6 +29,12 @@ public class SavedVideoService {
     }
 
     public void save(Long userId, Long videoId) {
+        validateSave(userId, videoId);
+        store.saveIfAbsent(userId, videoId, clock.instant());
+    }
+
+    /** Used both before publishing an intent and before its first database application. */
+    public void validateSave(Long userId, Long videoId) {
         requireUser(userId);
         requireVideoId(videoId);
         var video = catalog.videoAccess(videoId)
@@ -36,7 +42,6 @@ public class SavedVideoService {
         if (video.visibility() == VideoVisibility.PRIVATE && !userId.equals(video.ownerUserId())) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Video not found");
         }
-        store.saveIfAbsent(userId, videoId, clock.instant());
     }
 
     public void remove(Long userId, Long videoId) {

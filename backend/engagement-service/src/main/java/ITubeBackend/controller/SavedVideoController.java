@@ -2,13 +2,16 @@ package ITubeBackend.controller;
 
 import ITubeBackend.dto.savedvideos.SavedVideoResponse;
 import ITubeBackend.dto.savedvideos.SavedVideoStatusResponse;
+import ITubeBackend.dto.engagement.OperationResponse;
+import ITubeBackend.engagement.commands.CommandGateway;
+import static ITubeBackend.engagement.commands.EngagementCommand.Action.*;
+import org.springframework.http.ResponseEntity;
 import ITubeBackend.security.CurrentUser;
 import ITubeBackend.service.savedvideos.SavedVideoService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
@@ -17,24 +20,26 @@ import java.util.List;
 @RequestMapping("/api/saved-videos")
 public class SavedVideoController {
     private final SavedVideoService service;
+    private final CommandGateway commands;
 
-    public SavedVideoController(SavedVideoService service) { this.service = service; }
+    public SavedVideoController(SavedVideoService service, CommandGateway commands) { this.service = service; this.commands = commands; }
 
     @PutMapping("/{videoId}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void save(@PathVariable @Positive Long videoId) {
-        service.save(CurrentUser.require(), videoId);
+    public ResponseEntity<OperationResponse> save(@PathVariable @Positive Long videoId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String key) {
+        return commands.submit(CurrentUser.require(), key, SAVE, videoId, null, null, null, null);
     }
 
     @DeleteMapping("/{videoId}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void remove(@PathVariable @Positive Long videoId) {
-        service.remove(CurrentUser.require(), videoId);
+    public ResponseEntity<OperationResponse> remove(@PathVariable @Positive Long videoId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String key) {
+        return commands.submit(CurrentUser.require(), key, UNSAVE, videoId, null, null, null, null);
     }
 
     @DeleteMapping
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void clear() { service.clear(CurrentUser.require()); }
+    public ResponseEntity<OperationResponse> clear(@RequestHeader(value = "Idempotency-Key", required = false) String key) {
+        return commands.submit(CurrentUser.require(), key, SAVED_CLEAR, null, null, null, null, null);
+    }
 
     @GetMapping("/{videoId}")
     public SavedVideoStatusResponse status(@PathVariable @Positive Long videoId) {

@@ -13,12 +13,13 @@
 
 ## Run locally
 
-The default configuration now uses the team's PostgreSQL infrastructure. Start it
-according to the root README, then run `.\mvnw.cmd spring-boot:run` from `backend`.
-For optional local H2 use instead:
-`.\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=h2"`.
-H2 stores data in memory, so restarting the application clears history.
-Run tests using `.\mvnw.cmd test`.
+Use `dev.cmd` at the repository root as described in the root README. History uses ScyllaDB and Kafka;
+video metadata comes from catalog-service/PostgreSQL. The historical `h2` test profile now selects memory
+stores and an inline command transport, not an H2 database. Run isolated checks from `backend` with
+`.\mvnw.cmd -pl engagement-service -am test`.
+
+History writes now use Kafka. See [ENGAGEMENT-KAFKA.md](ENGAGEMENT-KAFKA.md) for the current write flow,
+idempotency keys, operation status endpoint and tests against real Docker Kafka/ScyllaDB.
 
 ## API
 
@@ -27,10 +28,10 @@ enter the URL, and for POST choose Body -> raw -> JSON.
 
 | Method | Path | Success |
 | --- | --- | --- |
-| POST | `/api/history` | 201 with the created entry |
+| POST | `/api/history` | 202 with an operation receipt |
 | GET | `/api/history?page=0&size=20` | 200 with a JSON array |
-| DELETE | `/api/history/10` | 204 without a body |
-| DELETE | `/api/history` | 204 without a body |
+| DELETE | `/api/history/{entryUuid}` | 202 with an operation receipt |
+| DELETE | `/api/history` | 202 with an operation receipt |
 
 POST body:
 
@@ -38,13 +39,13 @@ POST body:
 {"videoId": 25}
 ```
 
-Example POST response (ID and time are generated):
+Example accepted POST response (poll its operation before expecting the History GET to include it):
 
 ```json
-{"id": 10, "videoId": 25, "watchedAt": "2026-10-26T10:00:00Z"}
+{"operationId":"b1a5ea30-041d-4d19-beb0-f48cb78279a9","state":"PENDING","result":null,"httpStatus":0,"message":null}
 ```
 
-GET returns an array of these objects. It sorts newest first, then by history ID
+GET returns an array of history entries with a UUID id, videoId, watchedAt and video metadata. It sorts newest first, then by history ID
 descending if times match. `page` starts at zero; `size` defaults to 20 and must be
 1 through 100. Request the next page until an empty array is returned. Pagination
 uses offsets, so new watches or deletions between requests can shift page boundaries.

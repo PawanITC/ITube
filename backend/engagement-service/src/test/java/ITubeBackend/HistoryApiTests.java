@@ -33,6 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class HistoryApiTests {
     private static final AtomicLong OWNERS = new AtomicLong(7000);
     @Autowired private HistoryController controller;
+    @Autowired private ITubeBackend.controller.EngagementOperationController operationController;
     @Autowired private WatchHistoryStore repository;
     // catalog-service is another process; video details come from this in-memory stand-in
     @Autowired private FakeCatalog catalog;
@@ -43,7 +44,7 @@ class HistoryApiTests {
 
     @BeforeEach
     void setup() {
-        mvc = MockMvcBuilders.standaloneSetup(controller)
+        mvc = MockMvcBuilders.standaloneSetup(controller, operationController)
                 .addFilters(new AuthenticationConfig.AuthenticationFilter(tokens)).build();
         // History is in the in-memory engagement store (ScyllaDB in production), not the rolled-back database
         ((InMemoryEngagementStores.Resettable) repository).reset();
@@ -102,8 +103,8 @@ class HistoryApiTests {
         // A supplied userId cannot redirect writes or reads to someone else's history.
         mvc.perform(post("/api/history?userId=902").with(viewer)
                 .contentType("application/json").content("{\"videoId\":25}"))
-                .andExpect(status().isCreated()).andExpect(jsonPath("$.videoId").value(25))
-                .andExpect(jsonPath("$.id").isString()).andExpect(jsonPath("$.watchedAt").isString());
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.operationId").isString())
+                .andExpect(jsonPath("$.state").value("PENDING"));
         mvc.perform(get("/api/history?userId=902").with(viewer))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
         mvc.perform(get("/api/history?userId=901").with(other))
@@ -177,7 +178,7 @@ class HistoryApiTests {
         String id = add(viewer, 25L);
         add(viewer, 26L);
         mvc.perform(delete("/api/history/" + id + "?userId=901").with(other)).andExpect(status().isNotFound());
-        mvc.perform(delete("/api/history/" + id).with(viewer)).andExpect(status().isNoContent());
+        mvc.perform(delete("/api/history/" + id).with(viewer)).andExpect(status().isAccepted());
         mvc.perform(get("/api/history").with(viewer))
                 .andExpect(jsonPath("$.length()").value(1)).andExpect(jsonPath("$[0].videoId").value(26));
         mvc.perform(delete("/api/history/" + id).with(viewer)).andExpect(status().isNotFound());
@@ -188,17 +189,20 @@ class HistoryApiTests {
         add(viewer, 25L);
         add(viewer, 26L);
         add(other, 27L);
-        mvc.perform(delete("/api/history?userId=902").with(viewer)).andExpect(status().isNoContent());
+        mvc.perform(delete("/api/history?userId=902").with(viewer)).andExpect(status().isAccepted());
         mvc.perform(get("/api/history").with(viewer)).andExpect(content().json("[]"));
         mvc.perform(get("/api/history").with(other)).andExpect(jsonPath("$.length()").value(1));
-        mvc.perform(delete("/api/history").with(viewer)).andExpect(status().isNoContent());
+        mvc.perform(delete("/api/history").with(viewer)).andExpect(status().isAccepted());
     }
 
     private String add(RequestPostProcessor session, Long videoId) throws Exception {
         String body = mvc.perform(post("/api/history").with(session).contentType("application/json")
                 .content("{\"videoId\":" + videoId + "}"))
-                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
-        return new ObjectMapper().readTree(body).get("id").asString();
+                .andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString();
+        String operationId = new ObjectMapper().readTree(body).get("operationId").asString();
+        String receipt = mvc.perform(get("/api/engagement/operations/" + operationId).with(session))
+                .andExpect(jsonPath("$.state").value("SUCCEEDED")).andReturn().getResponse().getContentAsString();
+        return new ObjectMapper().readTree(receipt).get("result").get("id").asString();
     }
 
     /** Requests signed in as this user (a real access token, verified by the authentication filter). */

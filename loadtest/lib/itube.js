@@ -84,11 +84,11 @@ export function visit(data) {
     ok(http.get(`${BASE}/api/videos/${videoId}/playback-authorisation`, { tags: { name: 'playback-auth' } }), 'playback-auth');
     ok(http.get(`${BASE}/api/videos/${videoId}/file`, noRedirects('file')), 'file', [200, 206, 302]);
     ok(http.post(`${BASE}/api/history`, JSON.stringify({ videoId }), { ...JSON_HEADERS, tags: { name: 'history-add' } }),
-      'history-add', [201]);
+      'history-add', [202]);
     ok(http.get(`${BASE}/api/videos/${videoId}/comments?limit=20`, { tags: { name: 'comments' } }), 'comments');
   } else if (roll < 0.95) {
     // Engage: like, sometimes comment
-    ok(http.put(`${BASE}/api/liked-videos/${videoId}`, null, { tags: { name: 'like' } }), 'like', [204]);
+    ok(http.put(`${BASE}/api/liked-videos/${videoId}`, null, { tags: { name: 'like' } }), 'like', [202]);
     if (Math.random() < 0.3) {
       ok(http.post(`${BASE}/api/videos/${videoId}/comments`, JSON.stringify({ content: 'Load test comment' }),
         { ...JSON_HEADERS, tags: { name: 'comment-add' } }), 'comment-add', [201]);

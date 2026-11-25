@@ -83,14 +83,14 @@ class LikedVideoTests {
         FakeCatalog.Video video = video(ownerId, "API video", VideoVisibility.PUBLIC);
         String path = "/api/liked-videos/" + video.getVideoId();
         mvc.perform(get(path).with(session)).andExpect(status().isOk()).andExpect(jsonPath("$.liked").value(false));
-        mvc.perform(put(path).with(session)).andExpect(status().isNoContent());
-        mvc.perform(put(path).with(session)).andExpect(status().isNoContent());
+        mvc.perform(put(path).with(session)).andExpect(status().isAccepted());
+        mvc.perform(put(path).with(session)).andExpect(status().isAccepted());
         mvc.perform(get(path).with(session)).andExpect(jsonPath("$.liked").value(true));
         mvc.perform(get("/api/liked-videos").with(session))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].video.title").value("API video"));
-        mvc.perform(delete(path).with(session)).andExpect(status().isNoContent());
-        mvc.perform(delete(path).with(session)).andExpect(status().isNoContent());
+        mvc.perform(delete(path).with(session)).andExpect(status().isAccepted());
+        mvc.perform(delete(path).with(session)).andExpect(status().isAccepted());
         mvc.perform(get(path).with(session)).andExpect(jsonPath("$.liked").value(false));
     }
 

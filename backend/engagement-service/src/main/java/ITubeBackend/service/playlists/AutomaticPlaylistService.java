@@ -48,12 +48,30 @@ public class AutomaticPlaylistService {
     }
 
     public AutomaticPlaylistResponse current(Long userId, boolean refresh) {
+        var signals = signals(userId);
+        if (refresh) current.invalidate(signals);
+        Snapshot snapshot = current.get(signals, this::generate);
+        return resolve(snapshot);
+    }
+
+    private Signals signals(Long userId) {
         requireUser(userId);
         List<LikeStore.Like> recentLikes;
         try (var stream = likes.newestFirst(userId)) { recentLikes = stream.limit(LIKE_LIMIT).toList(); }
-        var signals = new Signals(userId, List.copyOf(history.page(userId, 0, HISTORY_LIMIT)), recentLikes);
-        if (refresh) current.invalidate(signals);
-        Snapshot snapshot = current.get(signals, this::generate);
+        return new Signals(userId, List.copyOf(history.page(userId, 0, HISTORY_LIMIT)), recentLikes);
+    }
+
+    /** Kafka refresh plans freeze recommendation order before persistence; retrying cannot create a new mix. */
+    public Snapshot prepareRefresh(Long userId, UUID operationId) {
+        return generate(signals(userId), operationId, clock.instant());
+    }
+
+    public void applyRefresh(Snapshot snapshot) {
+        snapshots.save(snapshot);
+        current.put(signals(snapshot.userId()), snapshot);
+    }
+
+    public AutomaticPlaylistResponse preparedResponse(Snapshot snapshot) {
         return resolve(snapshot);
     }
 
@@ -65,7 +83,12 @@ public class AutomaticPlaylistService {
     }
 
     private Snapshot generate(Signals signals) {
-        Instant now = clock.instant();
+        Snapshot snapshot = generate(signals, UUID.randomUUID(), clock.instant());
+        snapshots.save(snapshot);
+        return snapshot;
+    }
+
+    private Snapshot generate(Signals signals, UUID id, Instant now) {
         Set<Long> excluded = new LinkedHashSet<>();
         Map<Long, Double> weights = new HashMap<>();
         Map<Long, Integer> repeatCounts = new HashMap<>();
@@ -85,9 +108,7 @@ public class AutomaticPlaylistService {
         var profile = ranker.profile(seeds);
         var pool = recommendations.candidates(new RecommendationCandidateRequest(profile.preferredChannels(), List.copyOf(excluded), CANDIDATE_LIMIT));
         List<Long> ids = ranker.rank(pool, profile, excluded, now, MIX_SIZE);
-        var snapshot = new Snapshot(UUID.randomUUID(), signals.userId(), now, profile.personalized(), ids);
-        snapshots.save(snapshot);
-        return snapshot;
+        return new Snapshot(id, signals.userId(), now, profile.personalized(), ids);
     }
 
     private AutomaticPlaylistResponse resolve(Snapshot snapshot) {

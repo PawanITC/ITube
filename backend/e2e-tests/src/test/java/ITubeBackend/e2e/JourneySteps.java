@@ -21,6 +21,25 @@ public class JourneySteps {
     private String videoTitle;
     private final List<Integer> rateLimitStatuses = new ArrayList<>();
 
+    /** An accepted Kafka command must finish before the following journey asserts its library state. */
+    private void awaitEngagement(Browser browser, Browser.Response accepted) {
+        assertThat(accepted.status()).as(accepted.body()).isEqualTo(202);
+        String operationId = accepted.json().get("operationId").asString();
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(20);
+        while (System.nanoTime() < deadline) {
+            Browser.Response response = browser.get("/api/engagement/operations/" + operationId);
+            assertThat(response.status()).as(response.body()).isEqualTo(200);
+            String state = response.json().get("state").asString();
+            if (!state.equals("PENDING")) {
+                assertThat(state).as(response.body()).isEqualTo("SUCCEEDED");
+                return;
+            }
+            try { Thread.sleep(200); }
+            catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException(exception); }
+        }
+        throw new AssertionError("Engagement command is still pending: " + operationId);
+    }
+
     @Given("{string} registers a new account")
     public void registers(String name) {
         Browser browser = new Browser();
@@ -89,12 +108,12 @@ public class JourneySteps {
         // A redirect to object storage / CDN (or the bytes, when storage can't pre-sign)
         assertThat(file.status()).isIn(200, 206, 302);
         Browser.Response history = browsers.get(viewer).postJson("/api/history", "{\"videoId\":" + videoId + "}");
-        assertThat(history.status()).as(history.body()).isEqualTo(201);
+        awaitEngagement(browsers.get(viewer), history);
     }
 
     @When("{string} likes the video")
     public void likes(String viewer) {
-        assertThat(browsers.get(viewer).put("/api/liked-videos/" + videoId).status()).isEqualTo(204);
+        awaitEngagement(browsers.get(viewer), browsers.get(viewer).put("/api/liked-videos/" + videoId));
     }
 
     @When("{string} comments {string} on the video")

@@ -29,6 +29,7 @@ Then [docs/SHARDING.md](docs/SHARDING.md), [docs/CDN-AND-DNS.md](docs/CDN-AND-DN
 ## Prerequisites
 
 Feature guides: [Saved Videos / Watch later](backend/SAVED-VIDEOS.md) and [Playlists](backend/PLAYLISTS.md).
+History, Likes, Saves and Playlist writes now use Kafka: [flow, API contract and verification](backend/ENGAGEMENT-KAFKA.md).
 Automatic recommendations: [Personalized playlists](backend/AUTOMATIC-PLAYLISTS.md).
 
 | Tool    | Version                    | Check with       |
@@ -90,6 +91,18 @@ Good to know:
 ### Running things by hand
 
 Start the services first, with either `docker compose --env-file backend/.env up -d` (from the repo root) or `make up` in `tf_docker`.
+
+### Local Kafka UI
+
+From the repo root, start just the local Kafka broker and [Kafbat UI](https://ui.docs.kafbat.io/overview/getting-started):
+
+```bash
+docker compose up -d kafka kafka-ui
+```
+
+Open **http://localhost:8090** and select the **local** cluster to inspect topics, messages and consumer groups.
+The UI connects to `kafka:9094` inside Docker; applications on your machine still use `localhost:9092`.
+Stop these two services with `docker compose stop kafka-ui kafka`.
 
 ### 1. Run the services
 ```bash

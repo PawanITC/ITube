@@ -3,8 +3,6 @@ package ITubeBackend.engagement.scylla;
 import ITubeBackend.engagement.SavedVideoStore;
 import com.datastax.oss.driver.api.core.CqlSession;
 import com.datastax.oss.driver.api.core.DefaultConsistencyLevel;
-import com.datastax.oss.driver.api.core.cql.BatchStatement;
-import com.datastax.oss.driver.api.core.cql.DefaultBatchType;
 import com.datastax.oss.driver.api.core.cql.PreparedStatement;
 import java.time.Instant;
 import java.util.stream.Stream;
@@ -14,7 +12,7 @@ import java.util.stream.StreamSupport;
 public class ScyllaSavedVideoStore implements SavedVideoStore {
     private final CqlSession session;
     private final PreparedStatement insertLookup, selectLookup, deleteLookup, insertByUser, deleteByUser,
-            selectByUser, clearLookup, clearByUser;
+            selectByUser, selectUserLookup, clearByUser;
 
     public ScyllaSavedVideoStore(CqlSession session, String keyspace) {
         this.session = session;
@@ -24,8 +22,16 @@ public class ScyllaSavedVideoStore implements SavedVideoStore {
         insertByUser = session.prepare("INSERT INTO " + keyspace + ".saved_videos_by_user (user_id, saved_at, video_id) VALUES (?, ?, ?)");
         deleteByUser = session.prepare("DELETE FROM " + keyspace + ".saved_videos_by_user WHERE user_id = ? AND saved_at = ? AND video_id = ?");
         selectByUser = session.prepare("SELECT video_id, saved_at FROM " + keyspace + ".saved_videos_by_user WHERE user_id = ?");
-        clearLookup = session.prepare("DELETE FROM " + keyspace + ".saved_video_lookup WHERE user_id = ?");
+        selectUserLookup = session.prepare("SELECT video_id FROM " + keyspace + ".saved_video_lookup WHERE user_id = ?");
         clearByUser = session.prepare("DELETE FROM " + keyspace + ".saved_videos_by_user WHERE user_id = ?");
+    }
+
+    @Override
+    public java.util.Optional<SavedVideo> find(long userId, long videoId) {
+        var row = session.execute(selectLookup.bind(userId, videoId)
+                .setConsistencyLevel(DefaultConsistencyLevel.LOCAL_SERIAL)).one();
+        return row == null ? java.util.Optional.empty()
+                : java.util.Optional.of(new SavedVideo(userId, videoId, row.getInstant("saved_at")));
     }
 
     @Override
@@ -52,8 +58,12 @@ public class ScyllaSavedVideoStore implements SavedVideoStore {
 
     @Override
     public void clear(long userId) {
-        session.execute(BatchStatement.newInstance(DefaultBatchType.LOGGED,
-                clearLookup.bind(userId), clearByUser.bind(userId)));
+        // Compatibility/migration callers still use LWT saves. An ordinary partition delete can have
+        // an older timestamp than the preceding Paxos write, so clear those lookup rows with LWT too.
+        // Kafka uses ScyllaProjectionWriter's ordered, explicitly timestamped batches instead.
+        for (var row : session.execute(selectUserLookup.bind(userId)
+                .setConsistencyLevel(DefaultConsistencyLevel.LOCAL_SERIAL))) remove(userId, row.getLong("video_id"));
+        session.execute(clearByUser.bind(userId));
     }
 
     @Override

@@ -15,6 +15,8 @@ import java.util.stream.StreamSupport;
 
 /** One bounded playlist row: metadata and order change together in a lightweight transaction. */
 public class ScyllaPlaylistStore implements PlaylistStore {
+    // Retain a minimal marker so an old create still in flight cannot recreate a deleted playlist.
+    private static final UUID DELETED_VERSION = new UUID(0, 0);
     private final CqlSession session;
     private final PreparedStatement insert, find, list, replace, delete;
 
@@ -25,7 +27,7 @@ public class ScyllaPlaylistStore implements PlaylistStore {
         find = session.prepare("SELECT * FROM " + table + " WHERE user_id = ? AND playlist_id = ?");
         list = session.prepare("SELECT * FROM " + table + " WHERE user_id = ?");
         replace = session.prepare("UPDATE " + table + " SET title = ?, updated_at = ?, version = ?, video_ids = ?, added_at = ? WHERE user_id = ? AND playlist_id = ? IF version = ?");
-        delete = session.prepare("DELETE FROM " + table + " WHERE user_id = ? AND playlist_id = ? IF version = ?");
+        delete = session.prepare("UPDATE " + table + " SET version = ?, title = '', video_ids = [], added_at = {} WHERE user_id = ? AND playlist_id = ? IF version = ?");
     }
 
     @Override
@@ -39,13 +41,14 @@ public class ScyllaPlaylistStore implements PlaylistStore {
         // Serial reads see completed conditional writes before a subsequent edit is attempted.
         Row row = session.execute(find.bind(userId, playlistId)
                 .setConsistencyLevel(DefaultConsistencyLevel.LOCAL_SERIAL)).one();
-        return row == null ? Optional.empty() : Optional.of(read(row));
+        return row == null || DELETED_VERSION.equals(row.getUuid("version")) ? Optional.empty() : Optional.of(read(row));
     }
 
     @Override
     public Stream<Playlist> newestFirst(long userId) {
         var rows = session.execute(list.bind(userId).setPageSize(20));
-        return StreamSupport.stream(rows.spliterator(), false).map(this::read);
+        return StreamSupport.stream(rows.spliterator(), false)
+                .filter(row -> !DELETED_VERSION.equals(row.getUuid("version"))).map(this::read);
     }
 
     @Override
@@ -56,7 +59,7 @@ public class ScyllaPlaylistStore implements PlaylistStore {
 
     @Override
     public boolean delete(Playlist playlist) {
-        return session.execute(delete.bind(playlist.userId(), playlist.id(), playlist.version())).wasApplied();
+        return session.execute(delete.bind(DELETED_VERSION, playlist.userId(), playlist.id(), playlist.version())).wasApplied();
     }
 
     private java.util.List<Long> videoIds(Playlist playlist) {

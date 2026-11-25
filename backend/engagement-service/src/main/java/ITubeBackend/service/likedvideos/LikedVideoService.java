@@ -97,7 +97,7 @@ public class LikedVideoService {
         if (userId == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sign in first");
     }
 
-    private void requireVisibleVideo(Long userId, Long videoId) {
+    public void requireVisibleVideo(Long userId, Long videoId) {
         validateVideoId(videoId);
         VideoAccessDto video = catalog.videoAccess(videoId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Video not found"));
