@@ -69,6 +69,7 @@ export default function SearchResults({
 
   return (
     <section className="search-results" aria-label={`Search results for ${query}`}>
+      <h1 className="search-results-title">Results for “{query}”</h1>
       <div className="search-filters" role="tablist" aria-label="Filter search results">
         {SEARCH_FILTERS.map(option => (
           <button

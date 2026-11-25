@@ -759,7 +759,10 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
             )}
             <h1 className="watch-title">{video.visibility === 'MEMBERS_ONLY' && <span className="members-badge inline">Members only</span>}{video.title}</h1>
             <div className="watch-channel-row">
-              <a className="watch-channel" href={`/channel/${video.channelId}`} onClick={event => { event.preventDefault(); onSelectChannel(video.channelId); }}>{video.channelName}</a>
+              <a className="watch-channel" href={`/channel/${video.channelId}`} onClick={event => { event.preventDefault(); onSelectChannel(video.channelId); }}>
+                <span className="channel-avatar" aria-hidden="true">{video.channelName?.trim().charAt(0).toUpperCase() || '?'}</span>
+                {video.channelName}
+              </a>
               <JoinButton channelId={video.channelId} onOpenMemberships={onOpenMemberships} />
               <LikeButton key={`${videoId}:${session?.userId || 'current'}`} videoId={videoId} />
               <SaveButton key={`save:${videoId}:${session?.userId || 'current'}`} videoId={videoId} />

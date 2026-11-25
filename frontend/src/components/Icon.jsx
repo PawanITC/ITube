@@ -14,6 +14,7 @@ const paths = {
   liked: <><path d="M7 10v11H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2zm0 0 4-8c2 0 3 1 3 3v3h5a2 2 0 0 1 2 2l-2 9a2 2 0 0 1-2 2H7" /></>,
   more: <><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></>,
   create: <><path d="M12 5v14m-7-7h14" /></>,
+  upload: <><path d="M12 16V4m-5 5 5-5 5 5M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4" /></>,
   bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9m-8 12h4" /></>,
   play: <><path d="m9 6 10 6-10 6z" /></>,
   pause: <><path d="M8 5h3v14H8zM15 5h3v14h-3z" /></>,

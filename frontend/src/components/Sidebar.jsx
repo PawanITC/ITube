@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import Icon from './Icon';
 
-const primary = [['home', 'Home'], ['shorts', 'Shorts'], ['subscriptions', 'Subscriptions']];
 const library = [['history', 'History'], ['playlist', 'Playlists'], ['later', 'Watch later'], ['liked', 'Liked videos']];
 
 function NavLink({ icon, children, active = false, onNavigate }) {
@@ -32,9 +31,9 @@ export default function Sidebar({ session, onSelectChannel, onOpenMemberships, a
           <a className="brand" href="/" aria-label="ITube home" title="ITube home" onClick={event => { event.preventDefault(); onHome?.(); }}><span className="brand-mark"><Icon name="play" size={19} /></span><strong>ITube</strong></a>
         </div>
       )}
-      <nav>
-        <div className="nav-group">{primary.map(([icon, label]) => <NavLink key={label} icon={icon} active={label === activePage} onNavigate={label === 'Home' ? onHome : undefined}>{label}</NavLink>)}</div>
-        <div className="nav-group library-group"><div className="nav-heading">You <span>›</span></div>{session && <a href="/my-videos" className={`nav-link${activePage === 'My Videos' ? ' active' : ''}`} aria-current={activePage === 'My Videos' ? 'page' : undefined} aria-label="My Videos" onClick={event => { event.preventDefault(); onOpenMyVideos?.(); }}><Icon name="myVideos" size={22} /><span>My Videos</span></a>}{library.map(([icon, label]) => <NavLink key={label} icon={icon} active={label === activePage} onNavigate={label === 'History' ? onOpenHistory : label === 'Liked videos' ? onOpenLikedVideos : label === 'Watch later' ? onOpenSavedVideos : label === 'Playlists' ? onOpenPlaylists : undefined}>{label}</NavLink>)}{import.meta.env.DEV && <a href="/demo" className="nav-link" title="Development only"><Icon name="play" size={22} /><span>Feature showcase</span></a>}<a href="/memberships" className="nav-link" onClick={event => { event.preventDefault(); onOpenMemberships?.(); }}><Icon name="liked" size={22} /><span>Memberships</span></a></div>
+      <nav aria-label="Main navigation">
+        <div className="nav-group"><NavLink icon="home" active={activePage === 'Home'} onNavigate={onHome}>Home</NavLink></div>
+        <div className="nav-group library-group"><div className="nav-heading">You <span>›</span></div>{session && <a href="/my-videos" className={`nav-link${activePage === 'My Videos' ? ' active' : ''}`} aria-current={activePage === 'My Videos' ? 'page' : undefined} aria-label="My Videos" onClick={event => { event.preventDefault(); onOpenMyVideos?.(); }}><Icon name="myVideos" size={22} /><span>My Videos</span></a>}{library.map(([icon, label]) => <NavLink key={label} icon={icon} active={label === activePage} onNavigate={label === 'History' ? onOpenHistory : label === 'Liked videos' ? onOpenLikedVideos : label === 'Watch later' ? onOpenSavedVideos : label === 'Playlists' ? onOpenPlaylists : undefined}>{label}</NavLink>)}{import.meta.env.DEV && <a href="/demo" className="nav-link" aria-label="Feature showcase" title="Development only"><Icon name="play" size={22} /><span>Feature showcase</span></a>}<a href="/memberships" className="nav-link" aria-label="Memberships" onClick={event => { event.preventDefault(); onOpenMemberships?.(); }}><Icon name="liked" size={22} /><span>Memberships</span></a></div>
         <div className="nav-group subscriptions-group">
           <h3>Subscriptions</h3>
           {loadingSubscriptions && <p className="sidebar-subscription-message">Loading…</p>}
@@ -47,7 +46,6 @@ export default function Sidebar({ session, onSelectChannel, onOpenMemberships, a
           ))}
         </div>
       </nav>
-      <footer>About&nbsp; Press&nbsp; Copyright<br />Contact us&nbsp; Creators<br /><br />Terms&nbsp; Privacy&nbsp; Policy &amp; Safety<br />© 2026 Google LLC</footer>
     </aside>
   );
 }
