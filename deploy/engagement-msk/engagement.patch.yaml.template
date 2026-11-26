@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: engagement
+spec:
+  # Broker migration requires a drained, coordinated cutover: never mix old/new broker replicas.
+  strategy:
+    type: Recreate
+    rollingUpdate: null
+  template:
+    spec:
+      serviceAccountName: engagement
+      initContainers:
+        - name: wait-for-dependencies
+          image: __ENGAGEMENT_IMAGE__
+          # Keep existing data dependencies; Spring KafkaAdmin checks MSK network/auth at startup.
+          command:
+            - bash
+            - -c
+            - |
+              for target in scylla:9042 postgres:5432 redis:6379; do
+                host="${target%%:*}"; port="${target##*:}"
+                until (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null; do
+                  echo "waiting for ${target} ..."; sleep 3
+                done
+                echo "${target} is reachable"
+              done
+      containers:
+        - name: engagement
+          image: __ENGAGEMENT_IMAGE__
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: msk
+            # Override the single-broker value inherited from itube-config only after MSK cutover.
+            - name: ITUBE_TOPICS_REPLICAS
+              value: "2"
+            # Explicit env overrides KAFKA_BOOTSTRAP_SERVERS from the shared itube-config envFrom.
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: engagement-msk-config
+                  key: bootstrap-servers
+            - name: AWS_REGION
+              value: eu-west-2
+            - name: AWS_DEFAULT_REGION
+              value: eu-west-2
+            # Do not fall back to the node role if Pod Identity is unavailable.
+            - name: AWS_EC2_METADATA_DISABLED
+              value: "true"

@@ -1,5 +1,4 @@
-# ITube dev infrastructure. Starts empty on purpose: the first run only proves that GitHub Actions can log
-# in and use the state bucket.
+# ITube dev infrastructure. msk.tf owns only the new MSK cluster, its SG/configuration and dedicated client roles.
 #
 # The EKS cluster, ECR repositories and deploy role are currently owned by the separate team infra repository.
 # Don't recreate them here; two Terraform configurations managing the same resource overwrite each other.

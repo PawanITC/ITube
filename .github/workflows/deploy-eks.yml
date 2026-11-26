@@ -3,6 +3,16 @@
 name: Deploy to EKS (dev)
 
 on:
+  pull_request:
+    paths:
+      - backend/**
+      - frontend/**
+      - gateway/**
+      - deploy/k8s/**
+      - deploy/k8s-cloudflare/**
+      - deploy/engagement-msk/**
+      - deploy/kafka-ui-msk/**
+      - .github/workflows/deploy-eks.yml
   push:
     branches: [master]
     paths:
@@ -11,6 +21,8 @@ on:
       - gateway/**
       - deploy/k8s/**
       - deploy/k8s-cloudflare/**
+      - deploy/engagement-msk/**
+      - deploy/kafka-ui-msk/**
       - .github/workflows/deploy-eks.yml
   workflow_dispatch:
 
@@ -19,7 +31,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-eks-dev
+  group: deploy-eks-dev-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'release' }}
   cancel-in-progress: false
 
 env:
@@ -59,6 +71,20 @@ jobs:
           path: backend/*/target/cucumber-report.html
           if-no-files-found: ignore
 
+      - name: Validate MSK Kubernetes manifests (offline)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $brokers = 'b-1.example.abc.c1.kafka.eu-west-2.amazonaws.com:9098,b-2.example.abc.c1.kafka.eu-west-2.amazonaws.com:9098'
+          $ui = Join-Path $env:RUNNER_TEMP 'msk-ui.yaml'
+          $engagement = Join-Path $env:RUNNER_TEMP 'msk-engagement.yaml'
+          & ./deploy/kafka-ui-msk/render.ps1 -BootstrapServers $brokers -OutputPath $ui
+          & ./deploy/engagement-msk/render.ps1 -BootstrapServers $brokers -Image 'example.invalid/itube-engagement:validation' -OutputPath $engagement
+          foreach ($manifest in @($ui, $engagement)) {
+            docker run --rm -v "${manifest}:/work/manifest.yaml:ro" ghcr.io/yannh/kubeconform:v0.8.0 -strict -summary -kubernetes-version 1.36.0 /work/manifest.yaml
+            if ($LASTEXITCODE -ne 0) { throw 'MSK Kubernetes schema validation failed.' }
+          }
+
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -73,6 +99,8 @@ jobs:
 
   images:
     name: Build ${{ matrix.image }}
+    # PRs validate only; they must never obtain deployment credentials or push images.
+    if: github.event_name != 'pull_request'
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -158,8 +186,21 @@ jobs:
           ITUBE_DB_PASSWORD: ${{ secrets.ITUBE_DB_PASSWORD }}
           ITUBE_PLAYBACK_SIGNING_KEY: ${{ secrets.ITUBE_PLAYBACK_SIGNING_KEY }}
           ITUBE_JWT_PRIVATE_KEY: ${{ secrets.ITUBE_JWT_PRIVATE_KEY }}
+          MSK_BOOTSTRAP_SERVERS: ${{ vars.MSK_BOOTSTRAP_SERVERS }}
+          ENGAGEMENT_MSK_ENABLED: ${{ vars.ENGAGEMENT_MSK_ENABLED || 'false' }}
+          CATALOG_MSK_MIGRATION_READY: ${{ vars.CATALOG_MSK_MIGRATION_READY || 'false' }}
         run: |
           missing=0
+          # Keep Engagement on the shared broker until the migration owner explicitly confirms event coverage.
+          if [ "${ENGAGEMENT_MSK_ENABLED}" != "false" ] && [ "${ENGAGEMENT_MSK_ENABLED}" != "true" ]; then
+            echo "::error::ENGAGEMENT_MSK_ENABLED must be true or false."
+            missing=1
+          fi
+          if [ "${ENGAGEMENT_MSK_ENABLED}" = "true" ] && \
+             { [ -z "${MSK_BOOTSTRAP_SERVERS}" ] || [ "${CATALOG_MSK_MIGRATION_READY}" != "true" ]; }; then
+            echo "::error::Engagement MSK cutover requires bootstrap servers and CATALOG_MSK_MIGRATION_READY=true after a coordinated migration."
+            missing=1
+          fi
           if [ -z "${AWS_DEPLOY_ROLE_ARN}" ]; then
             echo "::error title=Missing variable::Set the variable AWS_DEPLOY_ROLE_ARN (environment 'dev' or repository), e.g. arn:aws:iam::160198385987:role/eks-lab-dev-app-itube. See deploy/README.md."
             missing=1
@@ -327,6 +368,39 @@ jobs:
           if [ -f cdn-config-patch.json ]; then kustomize edit add patch --path cdn-config-patch.json; fi
           kustomize build . | grep -E '^\s+image:' | sort -u
 
+      - name: Include configured MSK workloads in the existing deployment
+        if: vars.MSK_BOOTSTRAP_SERVERS != ''
+        shell: pwsh
+        env:
+          MSK_BOOTSTRAP_SERVERS: ${{ vars.MSK_BOOTSTRAP_SERVERS }}
+          ENGAGEMENT_MSK_ENABLED: ${{ vars.ENGAGEMENT_MSK_ENABLED || 'false' }}
+          CATALOG_MSK_MIGRATION_READY: ${{ vars.CATALOG_MSK_MIGRATION_READY || 'false' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Bootstrap endpoints are non-secret Terraform outputs, supplied by the infrastructure owner.
+          # Do not grant this deployment role MSK control-plane or Terraform-state access just to read them.
+          $uiManifest = Join-Path $env:GITHUB_WORKSPACE 'deploy/k8s/msk-ui.generated.yaml'
+          & ./deploy/kafka-ui-msk/render.ps1 -BootstrapServers $env:MSK_BOOTSTRAP_SERVERS -OutputPath $uiManifest
+          Push-Location ./deploy/k8s
+          try {
+            kustomize edit add resource msk-ui.generated.yaml
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot include Kafka UI.' }
+          } finally { Pop-Location }
+          if ($env:ENGAGEMENT_MSK_ENABLED -eq 'true') {
+            if ($env:CATALOG_MSK_MIGRATION_READY -ne 'true') { throw 'Catalog migration is not confirmed.' }
+            $image = "$env:ECR_PREFIX/itube-engagement:$env:GITHUB_SHA"
+            $engagementManifest = Join-Path $env:GITHUB_WORKSPACE 'deploy/k8s/msk-engagement.generated.yaml'
+            & ./deploy/engagement-msk/render.ps1 -BootstrapServers $env:MSK_BOOTSTRAP_SERVERS -Image $image -OutputPath $engagementManifest
+            Push-Location ./deploy/k8s
+            try {
+              # Replace the base resource in the SAME build, avoiding a second apply that could revert it.
+              kustomize edit remove resource engagement.yaml
+              if ($LASTEXITCODE -ne 0) { throw 'Cannot replace the Engagement base resource.' }
+              kustomize edit add resource msk-engagement.generated.yaml
+              if ($LASTEXITCODE -ne 0) { throw 'Cannot include MSK Engagement.' }
+            } finally { Pop-Location }
+          }
+
       - name: Apply manifests
         env:
           OVERLAY: ${{ steps.secret.outputs.overlay }}
@@ -349,6 +423,7 @@ jobs:
       - name: Wait for rollout
         env:
           OVERLAY: ${{ steps.secret.outputs.overlay }}
+          MSK_BOOTSTRAP_SERVERS: ${{ vars.MSK_BOOTSTRAP_SERVERS }}
         run: |
           set -euo pipefail
           ns="${K8S_NAMESPACE}"
@@ -359,6 +434,9 @@ jobs:
           for deploy in identity catalog engagement payments transcode-worker gateway frontend; do
             kubectl -n "${ns}" rollout status "deployment/${deploy}" --timeout=600s
           done
+          if [ -n "${MSK_BOOTSTRAP_SERVERS}" ]; then
+            kubectl -n "${ns}" rollout status deployment/kafka-ui-msk --timeout=300s
+          fi
           if [ "${OVERLAY}" = "deploy/k8s-cloudflare" ]; then
             kubectl -n "${ns}" rollout status deployment/cloudflared --timeout=180s
           fi

@@ -17,7 +17,8 @@ No AWS keys are stored in GitHub. The workflow logs in with GitHub OIDC:
 
 > **Before adding resources:** the EKS cluster, ECR repositories and the EKS deploy role in account
 > `160198385987` belong to the separate team infra repository. Don't define them here as well; two Terraform
-> configurations managing the same resource overwrite each other. `envs/dev` starts empty for that reason.
+> configurations managing the same resource overwrite each other. `envs/dev/msk.tf` reads the existing EKS,
+> VPC, private subnets and node security group and owns only the new MSK resources and dedicated client roles.
 
 ## 1. Bootstrap (once)
 
@@ -69,10 +70,59 @@ If bootstrap printed a different bucket name, update `bucket` in [`envs/dev/vers
 
 1. Add resources to `envs/dev` on a branch and open a pull request. Check the plan comment.
 2. Merge. Approve the *Apply* job when it asks. The first run with an empty config only proves the login and
-   state work (`Apply complete! Resources: 0 added`).
+   state work. This configuration now includes a paid MSK cluster; review its plan before approving any apply.
 
 Running `plan` locally against the shared state: log in to AWS, then `cd infra/envs/dev && terraform init && terraform plan`.
 Leave `apply` to the workflow.
+
+## MSK integration on the existing EKS cluster
+
+`envs/dev/msk.tf` uses this workflow's provider and `dev/terraform.tfstate` state.
+The former `deploy/terraform/msk.tf` has been removed, so there is one MSK definition.
+It creates no EKS cluster, VPC, subnet, NAT gateway, node group or shared IAM role.
+Read-only discovery expects the existing `eks-lab-dev` cluster in London, its two
+private subnets tagged `kubernetes.io/role/internal-elb=1` in different AZs, and its
+node SG tagged `Name=eks-lab-dev-node` and `kubernetes.io/cluster/eks-lab-dev=owned`.
+Confirm those tags with the infrastructure owner before applying; there is no public-subnet fallback.
+The existing EKS Pod Identity agent and namespace `itube` must already exist.
+
+The dedicated roles retain their `itube-*` names, which fit the existing bootstrap
+apply policy. Existing roles/policies and infrastructure remain under their current owners.
+If anyone previously applied MSK from another state, stop and coordinate a state
+handover before planning a second owner. Do not apply both roots for MSK.
+
+The two-broker development cluster uses replication factor 2 and minimum ISR 2,
+including internal offsets/transaction topics. One unavailable broker therefore
+pauses writes rather than acknowledging a single remaining copy. This is a
+cost-conscious development configuration, not three-AZ production availability.
+Existing topics need an operator-led replica reassignment; changing defaults
+does not replicate old data or transfer messages/consumer offsets between clusters.
+
+After an approved infrastructure apply, obtain the non-secret bootstrap output:
+
+```bash
+terraform -chdir=infra/envs/dev output -raw msk_bootstrap_brokers_sasl_iam
+```
+
+Set that complete value as the GitHub environment `dev` variable
+`MSK_BOOTSTRAP_SERVERS`. The existing EKS workflow then includes the private,
+read-only Kafka UI in its normal Kustomize deployment and waits for its rollout.
+It needs no extra MSK or state-read permissions on the existing deployment role.
+Unset bootstrap servers leave the current deployment flow unchanged.
+
+**Keep `ENGAGEMENT_MSK_ENABLED` unset/false for now.** Engagement and Catalog keep
+using the existing Kafka broker. Only after the migration owner coordinates
+Catalog's `video.deleted` stream, dependent services, old-broker draining and
+replay positions may they set BOTH `CATALOG_MSK_MIGRATION_READY=true` and
+`ENGAGEMENT_MSK_ENABLED=true` in environment `dev`. The workflow rejects an
+Engagement switch without confirmation/bootstrap servers. It replaces Engagement
+inside the same Kustomize build, retaining the chosen broker across releases.
+Do not use a flag change as an unplanned rollback: drain and coordinate event
+coverage in both directions. See `deploy/engagement-msk/README.md` for the runbook.
+
+PR checks validate both MSK manifests without AWS access; images/deployment jobs
+run only on master pushes or manual releases. The Terraform workflow already
+plans/validates this root. None of these configuration changes provisions AWS by itself.
 
 ## Adding an environment
 
