@@ -64,3 +64,16 @@ test('switching video or account aborts and ignores stale status responses', asy
   expect(signal.aborted).toBe(true);
   expect(screen.getByRole('button', { name: 'Remove video from Watch later' })).toHaveAttribute('aria-pressed', 'true');
 });
+
+test('signed-out viewers are asked to sign in when they click', () => {
+  const onSignIn = vi.fn();
+  render(<SaveButton videoId={25} signedIn={false} onSignIn={onSignIn} />);
+  const button = screen.getByRole('button', { name: 'Save video to Watch later' });
+  expect(button).toBeEnabled();
+  expect(screen.queryByRole('alert')).toBeNull();
+  fireEvent.click(button);
+  expect(screen.getByRole('alert')).toHaveTextContent('Sign in to use this feature');
+  fireEvent.click(screen.getByRole('button', { name: 'Sign In' }));
+  expect(onSignIn).toHaveBeenCalledTimes(1);
+  expect(fetch).not.toHaveBeenCalled();
+});

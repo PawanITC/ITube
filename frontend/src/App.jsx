@@ -53,6 +53,8 @@ function App() {
   const [route, setRoute] = useState(readRoute);
   const [uploadSession, setUploadSession] = useState(null);
   const [activeSession, setActiveSession] = useState(null);
+  // False until the reload check below answers, so pages don't flash a signed-out state.
+  const [sessionChecked, setSessionChecked] = useState(false);
   useLayoutEffect(() => { setEngagementAccount(activeSession?.userId); }, [activeSession?.userId]);
   const [search, setSearch] = useState('');
   const [videos, setVideos] = useState([]);
@@ -92,7 +94,8 @@ function App() {
     let cancelled = false;
     fetchCurrentUser()
       .then(current => { if (!cancelled && current) setActiveSession(existing => existing ?? current); })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setSessionChecked(true); });
     return () => { cancelled = true; };
   }, []);
 
@@ -246,6 +249,10 @@ function App() {
     setRoute({ page: 'channel', channelId });
   }
 
+  const openLogin = () => openAuth('login');
+  // Library pages and watch-page actions need an account. null means the reload check is still running.
+  const signedIn = activeSession ? true : sessionChecked ? false : null;
+
   const sidebarProps = {
     onOpenPlaylists: openPlaylists,
     onOpenSavedVideos: openSavedVideos,
@@ -270,7 +277,7 @@ function App() {
       ) : route.page === 'edit-video' ? (
         <main className="upload-main"><EditVideoPage key={route.videoId} videoId={route.videoId} onBack={openMyVideos} onDeleted={openMyVideos} /></main>
       ) : route.page === 'watch' ? (
-        <WatchPage key={activeSession?.userId || 'current'} playlistId={route.playlistId} onOpenPlaylist={openPlaylists} videoId={route.videoId} videos={route.video ? [route.video, ...videos.filter(video => video.videoId !== route.videoId)] : videos} videosLoading={route.video ? false : videosLoading} videosError={route.video ? '' : videosError} session={activeSession} onSelectVideo={openVideo} onSelectChannel={openChannel} onOpenMemberships={openMemberships} />
+        <WatchPage key={activeSession?.userId || 'current'} playlistId={route.playlistId} onOpenPlaylist={openPlaylists} videoId={route.videoId} videos={route.video ? [route.video, ...videos.filter(video => video.videoId !== route.videoId)] : videos} videosLoading={route.video ? false : videosLoading} videosError={route.video ? '' : videosError} session={activeSession} onSelectVideo={openVideo} onSelectChannel={openChannel} onOpenMemberships={openMemberships} onSignIn={openLogin} />
       ) : route.page === 'memberships' ? (
         <MembershipsPage onOpenChannel={openChannel} />
       ) : route.page === 'demo' ? (
@@ -280,7 +287,7 @@ function App() {
       ) : route.page === 'channel' ? (
         <ChannelPage channelId={route.channelId} onSelectVideo={openVideo} onSelectChannel={openChannel} onOpenMemberships={openMemberships} />
       ) : (
-        <><Sidebar {...sidebarProps} /><main className="main-content"><nav className="mobile-library-nav" aria-label="Mobile library"><a href="/" onClick={event => { event.preventDefault(); returnHome(); }} aria-current={route.page === 'home' ? 'page' : undefined}>Home</a><a href="/history" onClick={event => { event.preventDefault(); openHistory(); }} aria-current={route.page === 'history' ? 'page' : undefined}>History</a><a href="/liked-videos" onClick={event => { event.preventDefault(); openLikedVideos(); }} aria-current={route.page === 'liked-videos' ? 'page' : undefined}>Liked videos</a><a href="/playlists" onClick={event => { event.preventDefault(); openPlaylists(); }} aria-current={route.page === 'playlists' ? 'page' : undefined}>Playlists</a><a href="/saved-videos" onClick={event => { event.preventDefault(); openSavedVideos(); }} aria-current={route.page === 'saved-videos' ? 'page' : undefined}>Watch later</a>{activeSession && <a href="/my-videos" onClick={event => { event.preventDefault(); openMyVideos(); }} aria-current={route.page === 'my-videos' ? 'page' : undefined}>My Videos</a>}<a href="/memberships" onClick={event => { event.preventDefault(); openMemberships(); }}>Memberships</a></nav>{route.page === 'playlists' ? <Playlists key={`${activeSession?.userId || 'current'}:${route.playlistId || 'library'}`} playlistId={route.playlistId} onOpenPlaylist={openPlaylists} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : route.page === 'saved-videos' ? <SavedVideos key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : route.page === 'liked-videos' ? <LikedVideos key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : route.page === 'history' ? <History key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} /> : route.page === 'my-videos' ? <MyVideosPage onEditVideo={openEditVideo} /> : <div className="feed-content">{search ? <SearchResults query={search} filter={searchFilter} onFilterChange={setSearchFilter} videos={visibleVideos} videosLoading={videosLoading} videosError={videosError} channels={channelResults} channelsLoading={channelsLoading} channelsError={channelsError} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : <><h1 className="feed-title">Discover</h1><VideoGrid videos={visibleVideos} loading={videosLoading} error={videosError} onSelectVideo={openVideo} onSelectChannel={openChannel} showFeatured /></>}</div>}</main></>
+        <><Sidebar {...sidebarProps} /><main className="main-content"><nav className="mobile-library-nav" aria-label="Mobile library"><a href="/" onClick={event => { event.preventDefault(); returnHome(); }} aria-current={route.page === 'home' ? 'page' : undefined}>Home</a><a href="/history" onClick={event => { event.preventDefault(); openHistory(); }} aria-current={route.page === 'history' ? 'page' : undefined}>History</a><a href="/liked-videos" onClick={event => { event.preventDefault(); openLikedVideos(); }} aria-current={route.page === 'liked-videos' ? 'page' : undefined}>Liked videos</a><a href="/playlists" onClick={event => { event.preventDefault(); openPlaylists(); }} aria-current={route.page === 'playlists' ? 'page' : undefined}>Playlists</a><a href="/saved-videos" onClick={event => { event.preventDefault(); openSavedVideos(); }} aria-current={route.page === 'saved-videos' ? 'page' : undefined}>Watch later</a>{activeSession && <a href="/my-videos" onClick={event => { event.preventDefault(); openMyVideos(); }} aria-current={route.page === 'my-videos' ? 'page' : undefined}>My Videos</a>}<a href="/memberships" onClick={event => { event.preventDefault(); openMemberships(); }}>Memberships</a></nav>{signedIn === null && ['playlists', 'saved-videos', 'liked-videos', 'history'].includes(route.page) ? null : route.page === 'playlists' ? <Playlists key={`${activeSession?.userId || 'current'}:${route.playlistId || 'library'}`} playlistId={route.playlistId} onOpenPlaylist={openPlaylists} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} onSignIn={openLogin} signedIn={signedIn} /> : route.page === 'saved-videos' ? <SavedVideos key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} onSignIn={openLogin} signedIn={signedIn} /> : route.page === 'liked-videos' ? <LikedVideos key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} onSelectChannel={openChannel} onSignIn={openLogin} signedIn={signedIn} /> : route.page === 'history' ? <History key={activeSession?.userId || 'current'} onHome={returnHome} onSelectVideo={openVideo} onSignIn={openLogin} signedIn={signedIn} /> : route.page === 'my-videos' ? <MyVideosPage onEditVideo={openEditVideo} /> : <div className="feed-content">{search ? <SearchResults query={search} filter={searchFilter} onFilterChange={setSearchFilter} videos={visibleVideos} videosLoading={videosLoading} videosError={videosError} channels={channelResults} channelsLoading={channelsLoading} channelsError={channelsError} onSelectVideo={openVideo} onSelectChannel={openChannel} /> : <><h1 className="feed-title">Discover</h1><VideoGrid videos={visibleVideos} loading={videosLoading} error={videosError} onSelectVideo={openVideo} onSelectChannel={openChannel} showFeatured /></>}</div>}</main></>
       )}
     </div>
   );

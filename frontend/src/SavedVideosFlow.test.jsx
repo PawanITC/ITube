@@ -60,7 +60,7 @@ test('saves from the player, navigates to Watch later, replays the same video an
 
 test.each(['/saved-videos', '/watch-later', '/#watch-later'])('opens Watch later directly at %s', async route => {
   window.history.replaceState(null, '', route);
-  fetch.mockResolvedValue({ ok: true, status: 200, json: async () => [] });
+  fetch.mockImplementation(async url => ({ ok: true, status: 200, json: async () => url === '/api/auth/me' ? { userId: 7, channelId: 2 } : [] }));
   const { unmount } = render(<App />);
   try {
     expect(await screen.findByRole('heading', { name: 'No saved videos yet' })).toBeInTheDocument();

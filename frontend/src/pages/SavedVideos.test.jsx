@@ -58,11 +58,23 @@ test('last removal on a later page returns to the previous page', async () => {
 });
 
 test('load failures show a retry and empty state after recovery', async () => {
-  fetch.mockResolvedValueOnce(response({}, 401)).mockResolvedValueOnce(response([]));
+  fetch.mockResolvedValueOnce(response({}, 500)).mockResolvedValueOnce(response([]));
   render(<SavedVideos />);
-  expect(await screen.findByRole('alert')).toHaveTextContent('Sign in');
+  expect(await screen.findByRole('alert')).toHaveTextContent('500');
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
   expect(await screen.findByRole('heading', { name: 'No saved videos yet' })).toBeInTheDocument();
+});
+
+test('a 401 keeps the page and swaps Refresh for Sign In', async () => {
+  fetch.mockResolvedValueOnce(response({}, 401));
+  const onSignIn = vi.fn();
+  render(<SavedVideos onSignIn={onSignIn} />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('Sign in to use this feature');
+  expect(screen.getByRole('heading', { name: 'Watch later' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Sign In' }));
+  expect(onSignIn).toHaveBeenCalledTimes(1);
 });
 
 test('failed removal does not report success and the saved entry remains after retry', async () => {

@@ -104,3 +104,15 @@ test('aborts the history load on unmount', async () => {
   expect(signal.aborted).toBe(true);
   await act(async () => {});
 });
+
+test('signed-out viewers keep the page layout with Sign In in place of Refresh', async () => {
+  fetch.mockResolvedValueOnce(response({}, 401));
+  const onSignIn = vi.fn();
+  render(<History onSignIn={onSignIn} />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('Sign in to use this feature');
+  expect(screen.getByRole('heading', { name: 'Watch history' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Sign In' }));
+  expect(onSignIn).toHaveBeenCalledTimes(1);
+});

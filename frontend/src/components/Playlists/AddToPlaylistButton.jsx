@@ -5,7 +5,7 @@ import '../LikedVideos/LikedVideos.css';
 import './Playlists.css';
 
 // Like SaveButton, this is keyed by account and video in WatchPage.
-export default function AddToPlaylistButton({ videoId }) {
+export default function AddToPlaylistButton({ videoId, signedIn = true, onSignIn }) {
   const [open, setOpen] = useState(false);
   const [playlists, setPlaylists] = useState([]);
   const [page, setPage] = useState(0);
@@ -16,6 +16,7 @@ export default function AddToPlaylistButton({ videoId }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [revision, setRevision] = useState(0);
+  const [askSignIn, setAskSignIn] = useState(false);
   const alive = useRef(false);
   const pending = useRef(false);
   const trigger = useRef(null);
@@ -65,11 +66,12 @@ export default function AddToPlaylistButton({ videoId }) {
   }
 
   return <div className="playlist-control">
-    <button ref={trigger} type="button" className="liked-button" aria-expanded={open} onClick={() => { setOpen(value => !value); setNotice(''); }} disabled={busy}>
+    <button ref={trigger} type="button" className="liked-button" aria-expanded={open} onClick={() => { if (!signedIn) { setAskSignIn(true); return; } setOpen(value => !value); setNotice(''); }} disabled={busy}>
       <Icon name="playlist" size={20} />Add to playlist
     </button>
+    {askSignIn && <div className="liked-error" role="alert"><span>Sign in to use this feature</span> <button type="button" onClick={onSignIn}>Sign In</button></div>}
     <span className="liked-sr-only" role="status">{notice}</span>
-    {open && <section className="playlist-picker" aria-label="Choose playlist">
+    {open && signedIn && <section className="playlist-picker" aria-label="Choose playlist">
       <h2>Add to playlist</h2><p>Your playlists are private.</p>
       {error && <div className="liked-error" role="alert">{error} <button type="button" onClick={() => setRevision(value => value + 1)}>Retry</button></div>}
       {loading ? <p role="status">Loading playlists…</p> : !error && <>

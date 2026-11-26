@@ -46,7 +46,8 @@ test('navigates to liked videos and plays a liked unlisted video outside the pub
   const video = { videoId: 25, channelId: 2, title: 'An unlisted favourite', channelName: 'Test channel', duration: '00:01:00', processingStatus: 'READY', visibility: 'UNLISTED' };
   fetch.mockImplementation(async url => {
     let body = [];
-    if (url.startsWith('/api/liked-videos?')) body = [{ video, likedAt: '2026-11-10T10:00:00Z' }];
+    if (url === '/api/auth/me') body = { userId: 7, channelId: 2 };
+    else if (url.startsWith('/api/liked-videos?')) body = [{ video, likedAt: '2026-11-10T10:00:00Z' }];
     else if (url === '/api/liked-videos/25') body = { videoId: 25, liked: true };
     else if (url.endsWith('/playback-authorisation')) body = { allowed: true, sourceUrl: '/api/videos/25/file' };
     else if (url.includes('/tiers')) body = { owner: false, tiers: [] };
@@ -69,7 +70,7 @@ test('navigates to liked videos and plays a liked unlisted video outside the pub
 });
 
 test('opens History through hash navigation and returns home', async () => {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => [] }));
+  vi.stubGlobal('fetch', vi.fn(async url => ({ ok: true, status: 200, json: async () => url === '/api/auth/me' ? { userId: 7, channelId: 2 } : [] })));
   const { unmount } = render(<App />);
   try {
     await act(async () => {
@@ -83,6 +84,25 @@ test('opens History through hash navigation and returns home', async () => {
       window.dispatchEvent(new Event('hashchange'));
     });
     expect(screen.queryByRole('heading', { name: 'Watch history' })).not.toBeInTheDocument();
+  } finally {
+    unmount();
+    window.history.replaceState(null, '', '/');
+    vi.unstubAllGlobals();
+  }
+});
+
+test.each([['/history', 'Watch history'], ['/liked-videos', 'Liked videos'], ['/playlists', 'Playlists'], ['/saved-videos', 'Watch later']])('signed-out visitors to %s keep the page and Sign In goes to login', async (route, heading) => {
+  window.history.replaceState(null, '', route);
+  vi.stubGlobal('fetch', vi.fn(async url => url === '/api/auth/me' ? { ok: false, status: 401, json: async () => ({}) } : { ok: true, status: 200, json: async () => [] }));
+  const { unmount } = render(<App />);
+  try {
+    expect(await screen.findByRole('alert')).toHaveTextContent('Sign in to use this feature');
+    expect(screen.getByRole('heading', { level: 1, name: heading })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull();
+    expect(fetch.mock.calls.some(([url]) => /^\/api\/(history|liked-videos|playlists|saved-videos)/.test(url))).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign In' }));
+    expect(window.location.pathname).toBe('/login');
   } finally {
     unmount();
     window.history.replaceState(null, '', '/');

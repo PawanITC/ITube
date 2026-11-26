@@ -63,3 +63,16 @@ test('ignores a stale load after navigating to another video', async () => {
   expect(oldSignal.aborted).toBe(true);
   expect(screen.getByRole('button', { name: 'Unlike video' })).toHaveAttribute('aria-pressed', 'true');
 });
+
+test('signed-out viewers are asked to sign in when they click', () => {
+  const onSignIn = vi.fn();
+  render(<LikeButton videoId={25} signedIn={false} onSignIn={onSignIn} />);
+  const button = screen.getByRole('button', { name: 'Like video' });
+  expect(button).toBeEnabled();
+  expect(screen.queryByRole('alert')).toBeNull();
+  fireEvent.click(button);
+  expect(screen.getByRole('alert')).toHaveTextContent('Sign in to use this feature');
+  fireEvent.click(screen.getByRole('button', { name: 'Sign In' }));
+  expect(onSignIn).toHaveBeenCalledTimes(1);
+  expect(fetch).not.toHaveBeenCalled();
+});

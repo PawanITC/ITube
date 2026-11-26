@@ -6,16 +6,18 @@ import '../components/LikedVideos/LikedVideos.css';
 import './SavedVideos.css';
 
 const PAGE_SIZE = 20;
+const SIGN_IN_MESSAGE = 'Sign in to use this feature';
 const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 // App remounts this page when the account changes, so saved lists never cross sessions.
-export default function SavedVideos({ onHome, onSelectVideo, onSelectChannel }) {
+export default function SavedVideos({ onHome, onSelectVideo, onSelectChannel, onSignIn, signedIn = true }) {
   const [entries, setEntries] = useState([]);
   const [page, setPage] = useState(0);
   const [revision, setRevision] = useState(0);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [signedOut, setSignedOut] = useState(false);
   const [notice, setNotice] = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
   const alive = useRef(false);
@@ -26,6 +28,9 @@ export default function SavedVideos({ onHome, onSelectVideo, onSelectChannel }) 
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => { if (confirmClear) cancelButton.current?.focus(); }, [confirmClear]);
   useEffect(() => {
+    // signedIn is null while App is still checking the session; false means nobody is signed in.
+    if (signedIn === null) return undefined;
+    if (!signedIn) { setSignedOut(true); setError(SIGN_IN_MESSAGE); setLoading(false); return undefined; }
     const controller = new AbortController();
     setLoading(true);
     setError('');
@@ -35,10 +40,10 @@ export default function SavedVideos({ onHome, onSelectVideo, onSelectChannel }) 
       setEntries(result);
       setLoading(false);
     }).catch(reason => {
-      if (!controller.signal.aborted) { setError(reason.message); setLoading(false); }
+      if (!controller.signal.aborted) { if (reason.status === 401) { setSignedOut(true); setError(SIGN_IN_MESSAGE); } else setError(reason.message); setLoading(false); }
     });
     return () => controller.abort();
-  }, [page, revision]);
+  }, [page, revision, signedIn]);
 
   async function mutate(operation, message, clear = false) {
     if (pending.current) return;
@@ -54,7 +59,7 @@ export default function SavedVideos({ onHome, onSelectVideo, onSelectChannel }) 
         if (clear) setPage(0);
         setRevision(value => value + 1);
       }
-    } catch (reason) { if (alive.current) setError(reason.message); }
+    } catch (reason) { if (alive.current) { if (reason.status === 401) { setSignedOut(true); setError(SIGN_IN_MESSAGE); } else setError(reason.message); } }
     finally { pending.current = false; if (alive.current) setBusy(false); }
   }
 
@@ -62,7 +67,7 @@ export default function SavedVideos({ onHome, onSelectVideo, onSelectChannel }) 
     <header className="liked-heading">
       <div><p className="liked-eyebrow">YOUR LIBRARY</p><h1 id="saved-heading">Watch later</h1><p>Your saved videos, newest first. Watching a video keeps it in this list.</p></div>
       <div className="saved-toolbar">
-        <button className="liked-button" disabled={loading || busy} onClick={() => { setNotice(''); setRevision(value => value + 1); }}>Refresh</button>
+        {signedOut ? <button className="liked-button" onClick={onSignIn}>Sign In</button> : <button className="liked-button" disabled={loading || busy} onClick={() => { setNotice(''); setRevision(value => value + 1); }}>Refresh</button>}
         <button ref={clearButton} className="liked-button" disabled={loading || busy || !entries.length} onClick={() => setConfirmClear(true)}>Clear saved videos</button>
       </div>
     </header>
@@ -72,7 +77,7 @@ export default function SavedVideos({ onHome, onSelectVideo, onSelectChannel }) 
       <button className="liked-button" disabled={busy} onClick={() => mutate(clearSavedVideos, 'Watch later cleared.', true)}>Confirm clear</button>
       <button ref={cancelButton} className="liked-button" disabled={busy} onClick={() => { setConfirmClear(false); clearButton.current?.focus(); }}>Cancel</button>
     </div>}
-    {error ? <div className="liked-error" role="alert"><p>{error}</p><button className="liked-button" onClick={() => setRevision(value => value + 1)}>Retry</button></div>
+    {error ? <div className="liked-error" role="alert"><p>{error}</p>{!signedOut && <button className="liked-button" onClick={() => setRevision(value => value + 1)}>Retry</button>}</div>
       : loading ? <p role="status">Loading saved videos…</p>
       : !entries.length ? <div className="liked-empty"><Icon name="later" size={48} /><h2>No saved videos yet</h2><p>Use Save while watching a video to find it here later.</p><a className="liked-button" href="/" onClick={event => { if (onHome) { event.preventDefault(); onHome(); } }}>Explore videos</a></div>
       : <>

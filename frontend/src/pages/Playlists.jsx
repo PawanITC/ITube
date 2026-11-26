@@ -7,9 +7,10 @@ import '../components/LikedVideos/LikedVideos.css';
 import '../components/Playlists/Playlists.css';
 
 const PAGE_SIZE = 20;
+const SIGN_IN_MESSAGE = 'Sign in to use this feature';
 
 // App keys by owner AND playlist id; navigation clears old requests, pages and form state.
-export default function Playlists({ playlistId, onOpenPlaylist, onHome, onSelectVideo, onSelectChannel }) {
+export default function Playlists({ playlistId, onOpenPlaylist, onHome, onSelectVideo, onSelectChannel, onSignIn, signedIn = true }) {
   const automatic = playlistId?.startsWith('automatic:');
   const [data, setData] = useState(null);
   const [page, setPage] = useState(0);
@@ -18,6 +19,7 @@ export default function Playlists({ playlistId, onOpenPlaylist, onHome, onSelect
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [signedOut, setSignedOut] = useState(false);
   const [notice, setNotice] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const alive = useRef(false);
@@ -27,6 +29,9 @@ export default function Playlists({ playlistId, onOpenPlaylist, onHome, onSelect
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => { if (confirmDelete) cancelButton.current?.focus(); }, [confirmDelete]);
   useEffect(() => {
+    // signedIn is null while App is still checking the session; false means nobody is signed in.
+    if (signedIn === null) return undefined;
+    if (!signedIn) { setSignedOut(true); setError(SIGN_IN_MESSAGE); setLoading(false); return undefined; }
     const controller = new AbortController();
     setLoading(true);
     setError('');
@@ -39,10 +44,10 @@ export default function Playlists({ playlistId, onOpenPlaylist, onHome, onSelect
       if (playlistId) setName(result.playlist.title);
       setLoading(false);
     }).catch(reason => {
-      if (!controller.signal.aborted) { setError(reason.message); setLoading(false); }
+      if (!controller.signal.aborted) { if (reason.status === 401) { setSignedOut(true); setError(SIGN_IN_MESSAGE); } else setError(reason.message); setLoading(false); }
     });
     return () => controller.abort();
-  }, [playlistId, page, revision]);
+  }, [playlistId, page, revision, signedIn]);
 
   async function mutate(operation, message, after) {
     if (pending.current) return;
@@ -58,7 +63,7 @@ export default function Playlists({ playlistId, onOpenPlaylist, onHome, onSelect
         setConfirmDelete(false);
         setRevision(value => value + 1);
       }
-    } catch (reason) { if (alive.current) setError(reason.message); }
+    } catch (reason) { if (alive.current) { if (reason.status === 401) { setSignedOut(true); setError(SIGN_IN_MESSAGE); } else setError(reason.message); } }
     finally { pending.current = false; if (alive.current) setBusy(false); }
   }
 
@@ -72,14 +77,14 @@ export default function Playlists({ playlistId, onOpenPlaylist, onHome, onSelect
 
   const details = playlistId ? data : null;
   const list = playlistId ? data?.videos || [] : data || [];
-  const disabled = loading || busy;
+  const disabled = loading || busy || signedOut;
   return <section className="liked-page playlist-page" aria-labelledby="playlists-heading">
     <header className="liked-heading"><div><p className="liked-eyebrow">YOUR LIBRARY · PRIVATE</p><h1 id="playlists-heading">{details?.playlist.title || 'Playlists'}</h1><p>{playlistId ? `${details?.playlist.videoCount || 0} videos · Up to 500 per playlist` : 'Organise videos into your own named playlists.'}</p></div>
-      <div className="playlist-actions"><button className="liked-button" disabled={disabled} onClick={() => setRevision(value => value + 1)}>Refresh</button>{playlistId && <button className="liked-button" onClick={() => onOpenPlaylist?.()}>All playlists</button>}</div>
+      <div className="playlist-actions">{signedOut ? <button className="liked-button" onClick={onSignIn}>Sign In</button> : <button className="liked-button" disabled={disabled} onClick={() => setRevision(value => value + 1)}>Refresh</button>}{playlistId && <button className="liked-button" onClick={() => onOpenPlaylist?.()}>All playlists</button>}</div>
     </header>
     <p role="status" className="liked-notice">{notice}</p>
-    {!playlistId && <AutomaticPlaylist onOpenPlaylist={onOpenPlaylist} onSelectVideo={onSelectVideo} />}
-    {error && <div className="liked-error" role="alert">{error} <button type="button" onClick={() => setRevision(value => value + 1)}>Retry</button></div>}
+    {!playlistId && signedIn && !signedOut && <AutomaticPlaylist onOpenPlaylist={onOpenPlaylist} onSelectVideo={onSelectVideo} />}
+    {error && <div className="liked-error" role="alert">{error} {!signedOut && <button type="button" onClick={() => setRevision(value => value + 1)}>Retry</button>}</div>}
     {!playlistId && <form className="playlist-form" onSubmit={event => { event.preventDefault(); mutate(() => createPlaylist(name.trim()), 'Playlist created.', value => { setName(''); onOpenPlaylist?.(value.id); }); }}>
       <label>Playlist name<input maxLength={100} required value={name} disabled={disabled} onChange={event => setName(event.target.value)} /></label><button className="liked-button" disabled={disabled || !name.trim()}>Create playlist</button>
     </form>}
