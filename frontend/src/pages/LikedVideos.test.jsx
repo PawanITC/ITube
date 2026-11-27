@@ -26,14 +26,6 @@ test('unlikes and reloads the list', async () => {
   expect(fetch.mock.calls[1][1].method).toBe('DELETE');
 });
 
-test('shows a session prompt and can retry after sign-in', async () => {
-  fetch.mockResolvedValueOnce(response({}, 401)).mockResolvedValueOnce(response([]));
-  render(<LikedVideos />);
-  expect(await screen.findByRole('alert')).toHaveTextContent('Start a session');
-  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-  expect(await screen.findByRole('heading', { name: 'No liked videos yet' })).toBeInTheDocument();
-});
-
 test('failure to unlike is shown without announcing success', async () => {
   fetch.mockResolvedValueOnce(response([entry(25)])).mockResolvedValueOnce(response({}, 500));
   render(<LikedVideos />);
@@ -76,4 +68,16 @@ test('aborts requests on unmount', () => {
   const signal = fetch.mock.calls[0][1].signal;
   unmount();
   expect(signal.aborted).toBe(true);
+});
+
+test('a 401 keeps the page and swaps Refresh for Sign In', async () => {
+  fetch.mockResolvedValueOnce(response({}, 401));
+  const onSignIn = vi.fn();
+  render(<LikedVideos onSignIn={onSignIn} />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('Sign in to use this feature');
+  expect(screen.getByRole('heading', { name: 'Liked videos' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Sign In' }));
+  expect(onSignIn).toHaveBeenCalledTimes(1);
 });

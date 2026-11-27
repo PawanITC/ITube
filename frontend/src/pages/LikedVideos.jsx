@@ -5,15 +5,17 @@ import Icon from '../components/Icon';
 import '../components/LikedVideos/LikedVideos.css';
 
 const PAGE_SIZE = 20;
+const SIGN_IN_MESSAGE = 'Sign in to use this feature';
 const formatDate = value => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 
 // App remounts the page when the session changes, clearing the previous account's data.
-export default function LikedVideos({ onHome, onSelectVideo, onSelectChannel }) {
+export default function LikedVideos({ onHome, onSelectVideo, onSelectChannel, onSignIn, signedIn = true }) {
   const [entries, setEntries] = useState([]);
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [signedOut, setSignedOut] = useState(false);
   const [notice, setNotice] = useState('');
   const [revision, setRevision] = useState(0);
   const alive = useRef(false);
@@ -21,6 +23,9 @@ export default function LikedVideos({ onHome, onSelectVideo, onSelectChannel }) 
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
 
   useEffect(() => {
+    // signedIn is null while App is still checking the session; false means nobody is signed in.
+    if (signedIn === null) return undefined;
+    if (!signedIn) { setSignedOut(true); setError(SIGN_IN_MESSAGE); setLoading(false); return undefined; }
     const controller = new AbortController();
     setLoading(true);
     setError('');
@@ -30,10 +35,10 @@ export default function LikedVideos({ onHome, onSelectVideo, onSelectChannel }) 
       setEntries(result);
       setLoading(false);
     }).catch(reason => {
-      if (!controller.signal.aborted) { setError(reason.message); setLoading(false); }
+      if (!controller.signal.aborted) { if (reason.status === 401) { setSignedOut(true); setError(SIGN_IN_MESSAGE); } else setError(reason.message); setLoading(false); }
     });
     return () => controller.abort();
-  }, [page, revision]);
+  }, [page, revision, signedIn]);
 
   async function remove(entry) {
     if (pending.current) return;
@@ -43,14 +48,14 @@ export default function LikedVideos({ onHome, onSelectVideo, onSelectChannel }) 
     try {
       await unlikeVideo(entry.video.videoId);
       if (alive.current) { setNotice(`Removed ${entry.video.title} from liked videos.`); setRevision(value => value + 1); }
-    } catch (reason) { if (alive.current) setError(reason.message); }
+    } catch (reason) { if (alive.current) { if (reason.status === 401) { setSignedOut(true); setError(SIGN_IN_MESSAGE); } else setError(reason.message); } }
     finally { pending.current = false; if (alive.current) setBusy(false); }
   }
 
   return <section className="liked-page" aria-labelledby="liked-heading">
-    <header className="liked-heading"><div><p className="liked-eyebrow">YOUR LIBRARY</p><h1 id="liked-heading">Liked videos</h1><p>Keep your favourites close. Your most recent likes appear first.</p></div><button className="liked-button" disabled={loading || busy} onClick={() => { setNotice(''); setRevision(value => value + 1); }}>Refresh</button></header>
+    <header className="liked-heading"><div><p className="liked-eyebrow">YOUR LIBRARY</p><h1 id="liked-heading">Liked videos</h1><p>Keep your favourites close. Your most recent likes appear first.</p></div>{signedOut ? <button className="liked-button" onClick={onSignIn}>Sign In</button> : <button className="liked-button" disabled={loading || busy} onClick={() => { setNotice(''); setRevision(value => value + 1); }}>Refresh</button>}</header>
     <p className="liked-notice" role="status">{notice}</p>
-    {error ? <div className="liked-error" role="alert"><p>{error}</p><button className="liked-button" onClick={() => setRevision(value => value + 1)}>Retry</button></div> : loading ? <p role="status">Loading liked videos…</p> : entries.length === 0 ? <div className="liked-empty"><Icon name="liked" size={48} /><h2>No liked videos yet</h2><p>Like a video while watching to find it here later.</p><a className="liked-button" href="/" onClick={event => { if (onHome) { event.preventDefault(); onHome(); } }}>Explore videos</a></div> : <>
+    {error ? <div className="liked-error" role="alert"><p>{error}</p>{!signedOut && <button className="liked-button" onClick={() => setRevision(value => value + 1)}>Retry</button>}</div> : loading ? <p role="status">Loading liked videos…</p> : entries.length === 0 ? <div className="liked-empty"><Icon name="liked" size={48} /><h2>No liked videos yet</h2><p>Like a video while watching to find it here later.</p><a className="liked-button" href="/" onClick={event => { if (onHome) { event.preventDefault(); onHome(); } }}>Explore videos</a></div> : <>
       <ul className="liked-grid" aria-label="Liked videos">{entries.map(entry => <li key={entry.video.videoId}><VideoCard video={entry.video} onSelectVideo={id => onSelectVideo(id, entry.video)} onSelectChannel={onSelectChannel} /><div className="liked-entry-actions"><time dateTime={entry.likedAt}>Liked {formatDate(entry.likedAt)}</time><button className="liked-remove" disabled={loading || busy} aria-label={`Unlike ${entry.video.title}`} title={`Unlike ${entry.video.title}`} onClick={() => remove(entry)}><Icon name="liked" size={20} /></button></div></li>)}</ul>
       <nav className="liked-pagination" aria-label="Liked video pages"><button className="liked-button" disabled={loading || busy || page === 0} onClick={() => { setNotice(''); setPage(value => value - 1); }}>Previous</button><span>Page {page + 1}</span><button className="liked-button" disabled={loading || busy || entries.length < PAGE_SIZE} onClick={() => { setNotice(''); setPage(value => value + 1); }}>Next</button></nav>
     </>}

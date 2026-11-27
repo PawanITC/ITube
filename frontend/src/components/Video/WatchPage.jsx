@@ -116,7 +116,7 @@ function formatPlayerTime(value) {
     : `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
-export default function WatchPage({ videoId, videos, videosLoading, videosError, session, onSelectVideo, onSelectChannel, onOpenMemberships, playlistId, onOpenPlaylist }) {
+export default function WatchPage({ videoId, videos, videosLoading, videosError, session, onSelectVideo, onSelectChannel, onOpenMemberships, playlistId, onOpenPlaylist, onSignIn }) {
   const playlistQueue = usePlaylistQueue(playlistId, videoId);
   const [playback, setPlayback] = useState(null);
   const [playbackError, setPlaybackError] = useState('');
@@ -764,9 +764,9 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
                 {video.channelName}
               </a>
               <JoinButton channelId={video.channelId} onOpenMemberships={onOpenMemberships} />
-              <LikeButton key={`${videoId}:${session?.userId || 'current'}`} videoId={videoId} />
-              <SaveButton key={`save:${videoId}:${session?.userId || 'current'}`} videoId={videoId} />
-              <AddToPlaylistButton key={`playlist:${videoId}:${session?.userId || 'current'}`} videoId={videoId} />
+              <LikeButton key={`${videoId}:${session?.userId || 'current'}`} videoId={videoId} signedIn={hasSession} onSignIn={onSignIn} />
+              <SaveButton key={`save:${videoId}:${session?.userId || 'current'}`} videoId={videoId} signedIn={hasSession} onSignIn={onSignIn} />
+              <AddToPlaylistButton key={`playlist:${videoId}:${session?.userId || 'current'}`} videoId={videoId} signedIn={hasSession} onSignIn={onSignIn} />
             </div>
             <VideoDescription details={details?.videoId === videoId ? details : null} loading={detailsLoading} error={detailsError} />
 
@@ -779,7 +779,7 @@ export default function WatchPage({ videoId, videos, videosLoading, videosError,
                   <textarea value={draft} onChange={event => setDraft(event.target.value)} maxLength={5000} placeholder="Add a comment…" aria-label="Add a comment" />
                   <div className="comment-form-actions"><span>{draft.length}/5000</span><button type="submit" disabled={sending || !draft.trim()}>{sending ? 'Posting…' : 'Comment'}</button></div>
                 </form>
-              ) : <p className="comment-signin">Click the ITube logo to start a dev session before commenting.</p>}
+              ) : null}
               {commentsError && <p className="comment-error" role="alert">{commentsError}</p>}
               {commentsLoading ? <p className="comment-muted">Loading comments…</p> : comments.length === 0 ? <p className="comment-muted">No comments yet. Start the conversation.</p> : (
                 <ul className="comment-list">

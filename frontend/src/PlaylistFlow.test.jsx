@@ -104,7 +104,7 @@ test('reloads unlisted playlist playback outside the public feed and skips unava
 
 test.each(['/playlists', '/#playlists'])('opens the playlist library directly at %s', async route => {
   window.history.replaceState(null, '', route);
-  fetch.mockResolvedValue(response([]));
+  fetch.mockImplementation(async url => response(url === '/api/auth/me' ? { userId: 7, channelId: 2 } : []));
   const { unmount } = render(<App />);
   try {
     expect(await screen.findByRole('heading', { name: 'No playlists yet' })).toBeInTheDocument();

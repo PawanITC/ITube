@@ -4,15 +4,17 @@ import Icon from '../components/Icon';
 import './History.css';
 
 const PAGE_SIZE = 20;
+const SIGN_IN_MESSAGE = 'Sign in to use this feature';
 const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
-export default function History({ onHome, onSelectVideo }) {
+export default function History({ onHome, onSelectVideo, onSignIn, signedIn = true }) {
   const [entries, setEntries] = useState([]);
   const [page, setPage] = useState(0);
   const [revision, setRevision] = useState(0);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [signedOut, setSignedOut] = useState(false);
   const [notice, setNotice] = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
   const mounted = useRef(false);
@@ -26,6 +28,9 @@ export default function History({ onHome, onSelectVideo }) {
   }, []);
 
   useEffect(() => {
+    // signedIn is null while App is still checking the session; false means nobody is signed in.
+    if (signedIn === null) return undefined;
+    if (!signedIn) { setSignedOut(true); setError(SIGN_IN_MESSAGE); setLoading(false); return undefined; }
     const controller = new AbortController();
     setLoading(true);
     setError('');
@@ -40,11 +45,12 @@ export default function History({ onHome, onSelectVideo }) {
       setLoading(false);
     }).catch(reason => {
       if (controller.signal.aborted) return;
-      setError(reason.message || 'Unable to load history. Please try again.');
+      if (reason.status === 401) { setSignedOut(true); setError(SIGN_IN_MESSAGE); }
+      else setError(reason.message || 'Unable to load history. Please try again.');
       setLoading(false);
     });
     return () => controller.abort();
-  }, [page, revision]);
+  }, [page, revision, signedIn]);
 
   useEffect(() => { if (confirmClear) cancelButton.current?.focus(); }, [confirmClear]);
 
@@ -67,7 +73,7 @@ export default function History({ onHome, onSelectVideo }) {
       if (clear) setPage(0);
       setRevision(value => value + 1);
     } catch (reason) {
-      if (mounted.current) setError(reason.message || 'Unable to update history. Please try again.');
+      if (mounted.current) { if (reason.status === 401) { setSignedOut(true); setError(SIGN_IN_MESSAGE); } else setError(reason.message || 'Unable to update history. Please try again.'); }
     } finally {
       mutationPending.current = false;
       if (mounted.current) setBusy(false);
@@ -87,7 +93,7 @@ export default function History({ onHome, onSelectVideo }) {
     <div className="history-heading">
       <div><p className="history-eyebrow">YOUR LIBRARY</p><h1 id="history-heading">Watch history</h1><p>Your recently watched videos, all in one place.</p></div>
       <div className="history-actions">
-        <button className="history-button" disabled={disabled} onClick={() => { setNotice(''); setRevision(value => value + 1); }}>Refresh</button>
+        {signedOut ? <button className="history-button" onClick={onSignIn}>Sign In</button> : <button className="history-button" disabled={disabled} onClick={() => { setNotice(''); setRevision(value => value + 1); }}>Refresh</button>}
         <button ref={clearButton} className="history-button history-danger" disabled={disabled || entries.length === 0 || !!error} onClick={() => setConfirmClear(true)}>Clear all history</button>
       </div>
     </div>
@@ -99,7 +105,7 @@ export default function History({ onHome, onSelectVideo }) {
     </section>}
 
     <p className="history-notice" role="status">{notice}</p>
-    {error && <div className="history-error" role="alert"><p>{error}</p><button className="history-button" disabled={disabled} onClick={() => setRevision(value => value + 1)}>Retry</button></div>}
+    {error && <div className="history-error" role="alert"><p>{error}</p>{!signedOut && <button className="history-button" disabled={disabled} onClick={() => setRevision(value => value + 1)}>Retry</button>}</div>}
     {loading ? <p className="history-loading" role="status">Loading your history…</p> : !error && entries.length === 0 ? <div className="history-empty"><Icon name="history" size={52} /><h2>Your story starts here</h2><p>Videos you watch will appear here.</p><a className="history-button" href="/" onClick={onHome ? event => { event.preventDefault(); onHome(); } : undefined}>Explore videos</a></div> : <div aria-busy={busy}>
       {!error && <><div className="history-list-label"><h2>Recently watched</h2><span>Newest first</span></div><ul className="history-list">
         {entries.map(entry => <li className="history-entry" key={entry.id}>
